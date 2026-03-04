@@ -119,7 +119,7 @@ Use this for automatic processing:
 ### Quick Actions Panel (Right Top)
 
 - **Run Full Pipeline**: Executes all steps automatically
-- **Reset All**: Clears all progress and previews
+- **Clear All**: Clears all progress and previews
 
 ### Instagram Post Panel (Right Middle)
 
@@ -156,7 +156,7 @@ If the Quran video doesn't have text or you want faster processing:
 
 - Downloaded image and video are cached
 - You can skip re-downloading if files exist
-- Click "Reset All" to start fresh
+- Click "Clear All" to start fresh
 
 ### View Generated Files
 

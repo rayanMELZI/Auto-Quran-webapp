@@ -577,15 +577,19 @@ button.danger:hover:not(:disabled) {
                 </div>
                 <div class="button-group">
                     <button onclick="runFullPipeline()" id="btn-pipeline">Run Full Pipeline</button>
-                    <button onclick="resetPipeline()" class="danger">Reset All</button>
+                    <button onclick="resetPipeline()" class="danger">Clear All</button>
                 </div>
                 <details class="advanced-tools">
                     <summary>Advanced tools</summary>
                     <button onclick="resetDownloadedVideosList()" class="danger" type="button">Reset Downloaded Videos List</button>
                 </details>
                 <div class="progress-wrap" id="pipeline-progress-wrap" style="display:none;">
-                    <div class="progress-label" style="color:white;">
-                        <span id="pipeline-progress-label">Overall pipeline progress</span>
+                    <div class="progress-label" style="color:white; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span id="pipeline-status-icon" style="font-weight: bold; min-width: 20px;">⏳</span>
+                            <span style="font-weight: bold;">Loading</span>
+                            <span id="current-step-display" style="font-style: italic;">Starting pipeline...</span>
+                        </div>
                         <span id="pipeline-progress-text">0%</span>
                     </div>
                     <div class="progress-bar">
@@ -601,7 +605,11 @@ button.danger:hover:not(:disabled) {
                 
                 <div class="input-group">
                     <label>Caption (optional)</label>
-                    <textarea id="caption-input" placeholder="Leave empty for default caption..."></textarea>
+                    <textarea id="caption-input" placeholder="Leave empty for default caption...">⚠️لا تنسوا اخواننا المستضعفين بالدعاء رحمكم الله⚠️
+
+#اكتب_شي_تؤجر_عليه #لاتنسى_ذكر_الله
+
+#الله #اكتب_شي_تؤجر_عليه #الله_أكبر #قران_كريم #لاتنسى_ذكر_الله #تلاوات #اللهم_امين</textarea>
                 </div>
 
                 <button onclick="postToInstagram()" id="btn-post" class="success" disabled>
@@ -1010,8 +1018,30 @@ async function runFullPipeline() {
             startProgressPolling('full-pipeline', async (progressData) => {
                 setBar('pipeline-progress-fill', 'pipeline-progress-text', progressData.overall_percent || 0);
                 
+                // Update current step display
+                const stepNames = {
+                    'image': 'Downloading image...',
+                    'video': 'Downloading video...',
+                    'overlay': 'Extracting text overlay...',
+                    'final': 'Creating final video...',
+                    'post': 'Posting to Instagram...'
+                };
+                const currentStep = progressData.current_step || 'Starting pipeline...';
+                const stepDisplay = stepNames[currentStep] || currentStep;
+                document.getElementById('current-step-display').textContent = stepDisplay;
+                
                 const stepMap = progressData.steps || {};
                 const results = [];
+                
+                // Handle final step progress bar visibility
+                const finalStep = stepMap.final;
+                if (finalStep && finalStep.status === 'processing') {
+                    document.getElementById('final-progress-wrap').style.display = 'block';
+                    setBar('final-progress-fill', 'final-progress-text', finalStep.progress || 0);
+                } else if (finalStep && finalStep.status === 'completed') {
+                    document.getElementById('final-progress-wrap').style.display = 'block';
+                    setBar('final-progress-fill', 'final-progress-text', 100, true);
+                }
                 
                 ['image', 'video', 'overlay', 'final', 'post'].forEach((step) => {
                     if (!stepMap[step]) return;
@@ -1051,11 +1081,13 @@ async function runFullPipeline() {
                     
                     if (progressData.overall_percent === 100) {
                         setBar('pipeline-progress-fill', 'pipeline-progress-text', 100, true);
+                        document.getElementById('pipeline-status-icon').textContent = '✅';
                         if (stepMap.final?.result?.preview_url) {
                             showPreview('final', stepMap.final.result.preview_url);
                         }
                         showNotification('🎉 Pipeline Complete!', 'All steps completed successfully!', 'success');
                     } else {
+                        document.getElementById('pipeline-status-icon').textContent = '❌';
                         showNotification('Pipeline Stopped', 'Pipeline encountered an error', 'error');
                     }
                     
@@ -1078,7 +1110,7 @@ async function runFullPipeline() {
 
 // Reset Pipeline
 async function resetPipeline() {
-    if (!confirm('Are you sure you want to reset all progress?')) return;
+    if (!confirm('Are you sure you want to clear all progress?')) return;
     
     try {
         await fetch('/api/reset', { method: 'POST' });
