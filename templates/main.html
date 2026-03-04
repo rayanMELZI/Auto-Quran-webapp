@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auto Quran - Video Creator</title>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.header {
+    text-align: center;
+    color: white;
+    margin-bottom: 30px;
+}
+
+.header h1 {
+    font-size: 2.5em;
+    margin-bottom: 10px;
+}
+
+.header p {
+    font-size: 1.1em;
+    opacity: 0.9;
+}
+
+.main-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+@media (max-width: 900px) {
+    .main-content {
+        grid-template-columns: 1fr;
+    }
+}
+
+.card {
+    background: white;
+    border-radius: 16px;
+    padding: 25px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+
+.card h2 {
+    margin-bottom: 20px;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.step {
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.step:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.step-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.step-title {
+    font-weight: bold;
+    font-size: 1.1em;
+    color: #555;
+}
+
+.step-status {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: bold;
+}
+
+.status-pending {
+    background: #f0f0f0;
+    color: #999;
+}
+
+.status-processing {
+    background: #fff3cd;
+    color: #856404;
+    animation: pulse 1.5s infinite;
+}
+
+.status-completed {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-error {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    background: #667eea;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-size: 0.95em;
+}
+
+button:hover:not(:disabled) {
+    background: #5563c1;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+}
+
+button.secondary {
+    background: #6c757d;
+}
+
+button.secondary:hover:not(:disabled) {
+    background: #5a6268;
+}
+
+button.success {
+    background: #28a745;
+}
+
+button.success:hover:not(:disabled) {
+    background: #218838;
+}
+
+button.danger {
+    background: #dc3545;
+}
+
+button.danger:hover:not(:disabled) {
+    background: #c82333;
+}
+
+.preview-box {
+    margin-top: 15px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #f8f9fa;
+    display: none;
+}
+
+.preview-box.show {
+    display: block;
+}
+
+.preview-box img, .preview-box video {
+    width: 100%;
+    display: block;
+}
+
+.message {
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 15px;
+    display: none;
+}
+
+.message.show {
+    display: block;
+}
+
+.message.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.message.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.message.info {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+.button-group {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.full-pipeline {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
+.full-pipeline h2 {
+    color: white;
+}
+
+.full-pipeline button {
+    background: white;
+    color: #667eea;
+}
+
+.full-pipeline button:hover:not(:disabled) {
+    background: #f0f0f0;
+}
+
+.input-group {
+    margin-bottom: 15px;
+}
+
+.input-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #555;
+}
+
+.input-group input, .input-group textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-family: inherit;
+}
+
+.input-group textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.loader {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-left: 8px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    max-width: 350px;
+    display: none;
+    animation: slideIn 0.3s ease-out;
+    z-index: 1000;
+}
+
+.notification.show {
+    display: block;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.notification.success {
+    border-left: 4px solid #28a745;
+}
+
+.notification.error {
+    border-left: 4px solid #dc3545;
+}
+
+.notification.info {
+    border-left: 4px solid #17a2b8;
+}
+
+.notification-title {
+    font-weight: bold;
+    margin-bottom: 8px;
+    font-size: 1.1em;
+}
+
+.notification-message {
+    color: #666;
+}
+
+.progress-wrap {
+    margin-top: 12px;
+}
+
+.progress-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.9em;
+    color: #555;
+    margin-bottom: 6px;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 10px;
+    background: #e9ecef;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    background-size: 200% 100%;
+    transition: width 0.3s ease;
+    box-shadow: inset 0 0 6px rgba(255,255,255,0.3);
+}
+
+.progress-fill.success {
+    background: linear-gradient(90deg, #28a745, #1e7e34);
+    background-size: 200% 100%;
+    animation: progress-pulse 1s ease infinite;
+}
+
+@keyframes progress-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
+}
+
+.pipeline-results {
+    margin-top: 12px;
+    padding: 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.18);
+    color: white;
+    font-size: 0.92em;
+}
+
+.pipeline-results p {
+    margin: 6px 0;
+}
+
+.inline-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #333;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: white;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 12px;
+    padding: 10px 12px;
+}
+
+.toggle-label {
+    font-weight: 600;
+    font-size: 0.95em;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 54px;
+    height: 30px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+    background: rgba(255,255,255,0.35);
+    border-radius: 999px;
+    transition: all 0.25s ease;
+}
+
+.slider:before {
+    content: "";
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    left: 3px;
+    top: 3px;
+    background: white;
+    border-radius: 50%;
+    transition: all 0.25s ease;
+}
+
+.switch input:checked + .slider {
+    background: linear-gradient(90deg, #22c55e, #16a34a);
+}
+
+.switch input:checked + .slider:before {
+    transform: translateX(24px);
+}
+
+.advanced-tools {
+    margin-top: 10px;
+    color: rgba(255,255,255,0.9);
+}
+
+.advanced-tools summary {
+    cursor: pointer;
+    user-select: none;
+    font-size: 0.9em;
+    opacity: 0.9;
+}
+
+.advanced-tools .danger {
+    margin-top: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>🕌 Auto Quran Video Creator</h1>
+        <p>Create beautiful Quran videos step by step or all at once</p>
+    </div>
+
+    <div class="main-content">
+        <!-- Individual Steps Panel -->
+        <div class="card">
+            <h2>📋 Individual Steps</h2>
+
+            <!-- Step 1: Download Image -->
+            <div class="step">
+                <div class="step-header">
+                    <span class="step-title">1. Download Nature Image</span>
+                    <span class="step-status status-pending" id="status-image">Pending</span>
+                </div>
+                <button onclick="downloadImage()" id="btn-image">Download Image</button>
+                <div class="preview-box" id="preview-image">
+                    <img id="img-preview" alt="Nature background">
+                </div>
+                <div class="message" id="msg-image"></div>
+            </div>
+
+            <!-- Step 2: Download Video -->
+            <div class="step">
+                <div class="step-header">
+                    <span class="step-title">2. Download Quran Video</span>
+                    <span class="step-status status-pending" id="status-video">Pending</span>
+                </div>
+                <div class="input-group">
+                    <label>Optional Video URL</label>
+                    <input id="video-url-input" type="text" placeholder="https://www.youtube.com/watch?v=...">
+                </div>
+                <div class="input-group">
+                    <label>Optional Channel URL</label>
+                    <input id="channel-url-input" type="text" value="https://www.youtube.com/@Am9li9/videos">
+                </div>
+                <div class="input-group">
+                    <label>Keyword (used with channel URL)</label>
+                    <input id="keyword-input" type="text" value="سورة">
+                </div>
+                <button onclick="downloadVideo()" id="btn-video">Download Video</button>
+                <div class="preview-box" id="preview-video">
+                    <video id="video-preview" controls></video>
+                </div>
+                <div class="message" id="msg-video"></div>
+            </div>
+
+            <!-- Step 3: Extract Text Overlay -->
+            <div class="step">
+                <div class="step-header">
+                    <span class="step-title">3. Extract Text Overlay (Optional)</span>
+                    <span class="step-status status-pending" id="status-overlay">Pending</span>
+                </div>
+                <button onclick="extractText()" id="btn-overlay" disabled>Extract Text</button>
+                <div class="preview-box" id="preview-overlay">
+                    <video id="overlay-preview" controls></video>
+                </div>
+                <div class="message" id="msg-overlay"></div>
+            </div>
+
+            <!-- Step 4: Create Final Video -->
+            <div class="step">
+                <div class="step-header">
+                    <span class="step-title">4. Create Final Video</span>
+                    <span class="step-status status-pending" id="status-final">Pending</span>
+                </div>
+                <button onclick="createFinal()" id="btn-final" disabled>Create Final Video</button>
+                <div class="progress-wrap" id="final-progress-wrap" style="display:none;">
+                    <div class="progress-label">
+                        <span>Final render progress</span>
+                        <span id="final-progress-text">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="final-progress-fill"></div>
+                    </div>
+                </div>
+                <div class="preview-box" id="preview-final">
+                    <video id="final-preview" controls></video>
+                </div>
+                <div class="message" id="msg-final"></div>
+            </div>
+        </div>
+
+        <!-- Preview & Actions Panel -->
+        <div>
+            <!-- Full Pipeline Card -->
+            <div class="card full-pipeline" style="margin-bottom: 20px;">
+                <h2>⚡ Quick Actions</h2>
+                <div class="input-group">
+                    <label style="color: white;">Run with options</label>
+                    <div class="toggle-row">
+                        <span class="toggle-label">Auto post to Instagram after full pipeline</span>
+                        <label class="switch">
+                            <input id="auto-post-toggle" type="checkbox">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button onclick="runFullPipeline()" id="btn-pipeline">Run Full Pipeline</button>
+                    <button onclick="resetPipeline()" class="danger">Reset All</button>
+                </div>
+                <details class="advanced-tools">
+                    <summary>Advanced tools</summary>
+                    <button onclick="resetDownloadedVideosList()" class="danger" type="button">Reset Downloaded Videos List</button>
+                </details>
+                <div class="progress-wrap" id="pipeline-progress-wrap" style="display:none;">
+                    <div class="progress-label" style="color:white;">
+                        <span id="pipeline-progress-label">Overall pipeline progress</span>
+                        <span id="pipeline-progress-text">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="pipeline-progress-fill"></div>
+                    </div>
+                </div>
+                <div class="pipeline-results" id="pipeline-results" style="display:none;"></div>
+            </div>
+
+            <!-- Instagram Post Card -->
+            <div class="card">
+                <h2>📱 Post to Instagram</h2>
+                
+                <div class="input-group">
+                    <label>Caption (optional)</label>
+                    <textarea id="caption-input" placeholder="Leave empty for default caption..."></textarea>
+                </div>
+
+                <button onclick="postToInstagram()" id="btn-post" class="success" disabled>
+                    Share on Instagram
+                </button>
+                <div class="message" id="msg-post"></div>
+            </div>
+
+            <!-- Current Status Card -->
+            <div class="card" style="margin-top: 20px;">
+                <h2>📊 Pipeline Status</h2>
+                <div id="status-info">
+                    <p>✓ Image: <span id="info-image" style="color: #999;">Not downloaded</span></p>
+                    <p>✓ Video: <span id="info-video" style="color: #999;">Not downloaded</span></p>
+                    <p>✓ Overlay: <span id="info-overlay" style="color: #999;">Not extracted</span></p>
+                    <p>✓ Final: <span id="info-final" style="color: #999;">Not created</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Notification Toast -->
+<div class="notification" id="notification">
+    <div class="notification-title" id="notif-title">Title</div>
+    <div class="notification-message" id="notif-message">Message</div>
+</div>
+
+<script>
+let progressPollHandle = null;
+const pipelinePreviewShown = new Set();
+
+// Helper function to show notifications
+function showNotification(title, message, type = 'info') {
+    const notif = document.getElementById('notification');
+    document.getElementById('notif-title').textContent = title;
+    document.getElementById('notif-message').textContent = message;
+    notif.className = `notification ${type} show`;
+    
+    setTimeout(() => {
+        notif.classList.remove('show');
+    }, 5000);
+}
+
+function getVideoSourcePayload() {
+    return {
+        video_url: document.getElementById('video-url-input').value.trim(),
+        channel_url: document.getElementById('channel-url-input').value.trim() || 'https://www.youtube.com/@Am9li9/videos',
+        keyword: document.getElementById('keyword-input').value.trim() || 'سورة',
+    };
+}
+
+function setBar(fillId, textId, percent, success = false) {
+    const normalized = Math.max(0, Math.min(100, Number(percent || 0))).toFixed(1);
+    const fillEl = document.getElementById(fillId);
+    const textEl = document.getElementById(textId);
+    fillEl.style.width = `${normalized}%`;
+    fillEl.classList.toggle('success', success);
+    textEl.textContent = `${normalized}%`;
+}
+
+function renderPipelineResults(results) {
+    const box = document.getElementById('pipeline-results');
+    if (!results || !results.length) {
+        box.style.display = 'none';
+        box.innerHTML = '';
+        return;
+    }
+
+    box.style.display = 'block';
+    box.innerHTML = results.map((item) => {
+        const icon = item.success ? '✅' : '⚠️';
+        return `<p>${icon} <strong>${item.step}</strong>: ${item.message}</p>`;
+    }).join('');
+}
+
+async function resetDownloadedVideosList() {
+    const confirmed = confirm('Are you sure you want to reset the downloaded videos list? This will allow previously used videos to be downloaded again.');
+    if (!confirmed) return;
+
+    try {
+        const response = await fetch('/api/reset-downloaded-videos', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            showNotification('Done', data.message, 'success');
+        } else {
+            showNotification('Error', data.message || 'Failed to reset downloaded list', 'error');
+        }
+    } catch (error) {
+        showNotification('Error', 'Failed to reset downloaded list', 'error');
+    }
+}
+
+function stopProgressPolling() {
+    if (progressPollHandle) {
+        clearInterval(progressPollHandle);
+        progressPollHandle = null;
+    }
+}
+
+function startProgressPolling(expectedMode, onUpdate) {
+    stopProgressPolling();
+    progressPollHandle = setInterval(async () => {
+        try {
+            const response = await fetch('/api/progress');
+            const data = await response.json();
+            if (data.mode !== expectedMode) {
+                return;
+            }
+            onUpdate(data);
+            if (!data.active) {
+                stopProgressPolling();
+            }
+        } catch (error) {
+            stopProgressPolling();
+        }
+    }, 1000);
+}
+
+// Helper function to update step status
+function updateStatus(step, status, message = '') {
+    const statusEl = document.getElementById(`status-${step}`);
+    if (!statusEl) {
+        return;
+    }
+
+    statusEl.className = `step-status status-${status}`;
+    const statusTextMap = {
+        pending: '⚪ Pending',
+        processing: '⏳ Processing',
+        completed: '✅ Completed',
+        error: '❌ Error',
+    };
+    statusEl.textContent = statusTextMap[status] || (status.charAt(0).toUpperCase() + status.slice(1));
+    
+    if (message) {
+        const msgEl = document.getElementById(`msg-${step}`);
+        if (!msgEl) {
+            return;
+        }
+        msgEl.className = `message ${status === 'error' ? 'error' : 'success'} show`;
+        msgEl.textContent = message;
+    }
+}
+
+// Helper function to show preview
+function showPreview(step, url) {
+    const previewBox = document.getElementById(`preview-${step}`);
+    previewBox.classList.add('show');
+    
+    if (step === 'image') {
+        document.getElementById('img-preview').src = url;
+    } else {
+        const videoEl = document.getElementById(`${step === 'final' ? 'final' : step === 'overlay' ? 'overlay' : 'video'}-preview`);
+        videoEl.src = url + '?t=' + new Date().getTime(); // Cache buster
+    }
+}
+
+// Update pipeline status info
+async function updatePipelineStatus() {
+    try {
+        const response = await fetch('/api/state');
+        const data = await response.json();
+        
+        document.getElementById('info-image').textContent = data.has_image ? '✅ Ready' : '❌ Not ready';
+        document.getElementById('info-image').style.color = data.has_image ? '#28a745' : '#999';
+        
+        document.getElementById('info-video').textContent = data.has_video ? `✅ ${data.video_title || 'Ready'}` : '❌ Not ready';
+        document.getElementById('info-video').style.color = data.has_video ? '#28a745' : '#999';
+        
+        document.getElementById('info-overlay').textContent = data.has_overlay ? '✅ Ready' : '⚪ Optional';
+        document.getElementById('info-overlay').style.color = data.has_overlay ? '#28a745' : '#999';
+        
+        document.getElementById('info-final').textContent = data.has_final ? '✅ Ready' : '❌ Not ready';
+        document.getElementById('info-final').style.color = data.has_final ? '#28a745' : '#999';
+        
+        // Enable/disable buttons based on state
+        document.getElementById('btn-overlay').disabled = !data.has_video;
+        document.getElementById('btn-final').disabled = !data.has_image || !data.has_video;
+        document.getElementById('btn-post').disabled = !data.has_final;
+    } catch (error) {
+        console.error('Error updating status:', error);
+    }
+}
+
+// Step 1: Download Image
+async function downloadImage() {
+    const btn = document.getElementById('btn-image');
+    btn.disabled = true;
+    btn.innerHTML = 'Downloading... <span class="loader"></span>';
+    updateStatus('image', 'processing');
+    
+    try {
+        const response = await fetch('/api/download-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: 'nature landscape' })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            updateStatus('image', 'completed', data.message);
+            showPreview('image', data.preview_url);
+            showNotification('Success!', data.message, 'success');
+        } else {
+            updateStatus('image', 'error', data.message);
+            showNotification('Error', data.message, 'error');
+        }
+    } catch (error) {
+        updateStatus('image', 'error', 'Network error occurred');
+        showNotification('Error', 'Failed to download image', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Download Image';
+        updatePipelineStatus();
+    }
+}
+
+// Step 2: Download Video
+async function downloadVideo() {
+    const btn = document.getElementById('btn-video');
+    btn.disabled = true;
+    btn.innerHTML = 'Downloading... <span class="loader"></span>';
+    updateStatus('video', 'processing');
+    
+    try {
+        const source = getVideoSourcePayload();
+        const response = await fetch('/api/download-video', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(source)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            updateStatus('video', 'completed', data.message);
+            showPreview('video', data.preview_url);
+            showNotification('Success!', data.message, 'success');
+        } else {
+            updateStatus('video', 'error', data.message);
+            showNotification('Error', data.message, 'error');
+        }
+    } catch (error) {
+        updateStatus('video', 'error', 'Network error occurred');
+        showNotification('Error', 'Failed to download video', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Download Video';
+        updatePipelineStatus();
+    }
+}
+
+// Step 3: Extract Text Overlay
+async function extractText() {
+    const btn = document.getElementById('btn-overlay');
+    btn.disabled = true;
+    btn.innerHTML = 'Extracting... <span class="loader"></span>';
+    updateStatus('overlay', 'processing');
+    
+    try {
+        const response = await fetch('/api/extract-text', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            updateStatus('overlay', 'completed', data.message);
+            showPreview('overlay', data.preview_url);
+            showNotification('Success!', data.message, 'success');
+        } else {
+            updateStatus('overlay', 'error', data.message);
+            showNotification('Error', data.message, 'error');
+        }
+    } catch (error) {
+        updateStatus('overlay', 'error', 'Network error occurred');
+        showNotification('Error', 'Failed to extract text overlay', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Extract Text';
+        updatePipelineStatus();
+    }
+}
+
+// Step 4: Create Final Video
+async function createFinal() {
+    const btn = document.getElementById('btn-final');
+    document.getElementById('final-progress-wrap').style.display = 'block';
+    setBar('final-progress-fill', 'final-progress-text', 0);
+
+    btn.disabled = true;
+    btn.innerHTML = 'Creating... <span class="loader"></span>';
+    updateStatus('final', 'processing');
+
+    startProgressPolling('create-final', (progressData) => {
+        const finalStep = progressData.steps?.final;
+        if (finalStep) {
+            setBar('final-progress-fill', 'final-progress-text', finalStep.progress || progressData.overall_percent, finalStep.status === 'completed');
+        } else {
+            setBar('final-progress-fill', 'final-progress-text', progressData.overall_percent);
+        }
+    });
+    
+    try {
+        const response = await fetch('/api/create-final', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            updateStatus('final', 'completed', data.message);
+            showPreview('final', data.preview_url);
+            showNotification('Success!', data.message, 'success');
+        } else {
+            updateStatus('final', 'error', data.message);
+            showNotification('Error', data.message, 'error');
+        }
+    } catch (error) {
+        updateStatus('final', 'error', 'Network error occurred');
+        showNotification('Error', 'Failed to create final video', 'error');
+    } finally {
+        stopProgressPolling();
+        btn.disabled = false;
+        btn.innerHTML = 'Create Final Video';
+        updatePipelineStatus();
+    }
+}
+
+// Post to Instagram
+async function postToInstagram() {
+    const btn = document.getElementById('btn-post');
+    const caption = document.getElementById('caption-input').value;
+    
+    btn.disabled = true;
+    btn.innerHTML = 'Posting... <span class="loader"></span>';
+    
+    try {
+        const response = await fetch('/api/post-instagram', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ caption })
+        });
+        
+        const data = await response.json();
+        
+        const msgEl = document.getElementById('msg-post');
+        if (data.success) {
+            msgEl.className = 'message success show';
+            msgEl.textContent = data.message;
+            showNotification('🎉 Success!', data.message, 'success');
+        } else {
+            msgEl.className = 'message error show';
+            msgEl.textContent = data.message;
+            showNotification('Error', data.message, 'error');
+        }
+    } catch (error) {
+        const msgEl = document.getElementById('msg-post');
+        msgEl.className = 'message error show';
+        msgEl.textContent = 'Network error occurred';
+        showNotification('Error', 'Failed to post to Instagram', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Share on Instagram';
+    }
+}
+
+// Run Full Pipeline
+async function runFullPipeline() {
+    const btn = document.getElementById('btn-pipeline');
+    const autoPost = document.getElementById('auto-post-toggle').checked;
+    const source = getVideoSourcePayload();
+
+    btn.disabled = true;
+    btn.innerHTML = 'Running... <span class="loader"></span>';
+    document.getElementById('pipeline-progress-wrap').style.display = 'block';
+    setBar('pipeline-progress-fill', 'pipeline-progress-text', 0);
+    renderPipelineResults([]);
+    pipelinePreviewShown.clear();
+    
+    showNotification('Pipeline Started', 'Running all steps automatically...', 'info');
+
+    try {
+        const response = await fetch('/api/run-full-pipeline', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                skip_text_overlay: false,
+                auto_post: autoPost,
+                caption: document.getElementById('caption-input').value,
+                channel_url: source.channel_url,
+                keyword: source.keyword,
+                video_url: source.video_url,
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('Pipeline Started', 'Background pipeline is now running...', 'info');
+            
+            startProgressPolling('full-pipeline', async (progressData) => {
+                setBar('pipeline-progress-fill', 'pipeline-progress-text', progressData.overall_percent || 0);
+                
+                const stepMap = progressData.steps || {};
+                const results = [];
+                
+                ['image', 'video', 'overlay', 'final', 'post'].forEach((step) => {
+                    if (!stepMap[step]) return;
+                    const stepData = stepMap[step];
+                    const status = stepData.status;
+                    
+                    if (status === 'completed') {
+                        updateStatus(step, 'completed', stepData.message || 'Completed');
+                        if (stepData.result) {
+                            results.push(stepData.result);
+                            if (stepData.result.preview_url && !pipelinePreviewShown.has(step)) {
+                                showPreview(step, stepData.result.preview_url);
+                                pipelinePreviewShown.add(step);
+                            }
+                        }
+                    } else if (status === 'processing') {
+                        updateStatus(step, 'processing', stepData.message || 'Processing...');
+                    } else if (status === 'error') {
+                        updateStatus(step, 'error', stepData.message || 'Failed');
+                        if (stepData.result) {
+                            results.push(stepData.result);
+                            if (stepData.result.preview_url && !pipelinePreviewShown.has(step)) {
+                                showPreview(step, stepData.result.preview_url);
+                                pipelinePreviewShown.add(step);
+                            }
+                        }
+                    } else if (status === 'skipped') {
+                        updateStatus(step, 'completed', stepData.message || 'Skipped');
+                        if (stepData.result) results.push(stepData.result);
+                    }
+                });
+                
+                renderPipelineResults(results);
+                
+                if (!progressData.active) {
+                    stopProgressPolling();
+                    
+                    if (progressData.overall_percent === 100) {
+                        setBar('pipeline-progress-fill', 'pipeline-progress-text', 100, true);
+                        if (stepMap.final?.result?.preview_url) {
+                            showPreview('final', stepMap.final.result.preview_url);
+                        }
+                        showNotification('🎉 Pipeline Complete!', 'All steps completed successfully!', 'success');
+                    } else {
+                        showNotification('Pipeline Stopped', 'Pipeline encountered an error', 'error');
+                    }
+                    
+                    btn.disabled = false;
+                    btn.innerHTML = 'Run Full Pipeline';
+                    updatePipelineStatus();
+                }
+            });
+        } else {
+            showNotification('Pipeline Error', data.message, 'error');
+            btn.disabled = false;
+            btn.innerHTML = 'Run Full Pipeline';
+        }
+    } catch (error) {
+        showNotification('Error', 'Pipeline execution failed: ' + error.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = 'Run Full Pipeline';
+    }
+}
+
+// Reset Pipeline
+async function resetPipeline() {
+    if (!confirm('Are you sure you want to reset all progress?')) return;
+    
+    try {
+        await fetch('/api/reset', { method: 'POST' });
+        
+        // Reset UI
+        ['image', 'video', 'overlay', 'final'].forEach(step => {
+            updateStatus(step, 'pending');
+            document.getElementById(`preview-${step}`).classList.remove('show');
+            document.getElementById(`msg-${step}`).classList.remove('show');
+        });
+        
+        document.getElementById('msg-post').classList.remove('show');
+        document.getElementById('caption-input').value = '';
+        
+        updatePipelineStatus();
+        showNotification('Reset', 'Pipeline has been reset', 'info');
+    } catch (error) {
+        showNotification('Error', 'Failed to reset pipeline', 'error');
+    }
+}
+
+// Initialize on page load
+updatePipelineStatus();
+</script>
+
+</body>
+</html>

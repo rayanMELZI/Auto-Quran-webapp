@@ -1,0 +1,472 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+}
+
+.landing-page {
+    background-color: #041935;
+    min-height: 100vh;
+    position: relative;
+    width: 100%;
+}
+
+/* Background */
+.bg-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.bg-image {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.bg-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.bg-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(3px);
+}
+
+/* Main Content */
+.main-content {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 1920px;
+    margin: 0 auto;
+}
+
+/* Navigation Bar */
+.navbar {
+    height: 101px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 0 60px;
+}
+
+.nav-links {
+    display: flex;
+    gap: 149px;
+    align-items: center;
+}
+
+.nav-link {
+    color: white;
+    text-decoration: none;
+    font-size: 28px;
+    font-weight: 600;
+    transition: opacity 0.3s;
+}
+
+.nav-link:hover {
+    opacity: 0.8;
+}
+
+.lang-btn {
+    position: absolute;
+    right: 60px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.lang-button {
+    background: rgba(255, 255, 255, 0.24);
+    border: 3px solid #cdb59b;
+    border-radius: 12px;
+    width: 122px;
+    height: 40px;
+    font-family: 'Inter', 'Noto Sans Arabic', sans-serif;
+    font-size: 20px;
+    font-weight: 800;
+    background-image: linear-gradient(90deg, rgb(205, 181, 155) 0%, rgb(154, 136, 116) 32.219%, rgb(179, 158, 136) 68.222%, rgb(205, 181, 155) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.lang-button:hover {
+    transform: translateY(-50%) scale(1.05);
+}
+
+/* Home Section */
+.home-section {
+    padding: 30px 60px;
+    min-height: 1138px;
+}
+
+/* Channels */
+.channels {
+    display: flex;
+    justify-content: space-between;
+    gap: 200px;
+    margin-bottom: 100px;
+    padding: 0 120px;
+}
+
+.channel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.photo-container {
+    position: relative;
+    width: 226.925px;
+    height: 226.925px;
+    margin-bottom: 30px;
+}
+
+.story-ring {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+}
+
+.story-ring svg {
+    width: 100%;
+    height: 100%;
+}
+
+.photo {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    overflow: hidden;
+    z-index: 1;
+}
+
+.photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.channel-name {
+    color: white;
+    font-size: 32.941px;
+    font-weight: 700;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.channel-description {
+    color: white;
+    font-size: 27.451px;
+    font-weight: 500;
+    margin-bottom: 25px;
+    text-align: center;
+}
+
+.channel-buttons {
+    display: flex;
+    gap: 20px;
+}
+
+.follow-btn,
+.visit-btn {
+    width: 144.573px;
+    height: 53.986px;
+    border-radius: 32.941px;
+    font-size: 23.791px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, opacity 0.2s;
+    border: none;
+}
+
+.follow-btn:hover,
+.visit-btn:hover {
+    transform: scale(1.05);
+}
+
+.follow-btn-blue {
+    background: linear-gradient(to right, #2179ef, #134689);
+    color: white;
+}
+
+.visit-btn-blue {
+    background: #e2e5e9;
+    border: 2.745px solid #2179ef;
+    background-image: linear-gradient(to right, #2179ef, #134689);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.follow-btn-red {
+    background: linear-gradient(to right, #640f2b, #bd1919);
+    color: white;
+}
+
+.visit-btn-red {
+    background: #e2e5e9;
+    border: 2.745px solid #640f2b;
+    background-image: linear-gradient(to right, #640f2b, #bd1919);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* Post Cards */
+.post-cards {
+    display: flex;
+    gap: 59px;
+    justify-content: center;
+    margin-bottom: 60px;
+}
+
+.card {
+    width: 313px;
+    height: 437px;
+    background: #24303c;
+    border-radius: 48px;
+    position: relative;
+}
+
+.card::before {
+    content: '';
+    position: absolute;
+    bottom: 57px;
+    left: 34px;
+    right: 91px;
+    height: 20px;
+    background: linear-gradient(to right, #40576d, #4d6984 54.012%, #40576d);
+    border-radius: 48px;
+}
+
+.card::after {
+    content: '';
+    position: absolute;
+    bottom: 31px;
+    left: 34px;
+    right: 121px;
+    height: 20px;
+    background: linear-gradient(to right, #40576d, #4d6984 31.219%, #40576d 61.221%);
+    border-radius: 48px;
+}
+
+.card-more {
+    position: absolute;
+    top: 21px;
+    right: 30px;
+    width: 26.833px;
+    height: 5.75px;
+}
+
+.card-more svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* Show All Button */
+.show-all-container {
+    display: flex;
+    justify-content: center;
+}
+
+.show-all-btn {
+    width: 258px;
+    height: 54px;
+    background: rgba(36, 48, 60, 0.8);
+    border: 3px solid #61a0f4;
+    border-radius: 12px;
+    font-size: 20px;
+    font-weight: 800;
+    background-image: linear-gradient(to right, #70a8f3, #2d7ae1);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.show-all-btn:hover {
+    transform: scale(1.05);
+}
+
+/* Services Section */
+.services-section {
+    padding: 80px 60px 100px;
+    min-height: 610px;
+}
+
+.services-title {
+    color: white;
+    font-size: 48px;
+    font-weight: 800;
+    text-align: center;
+    margin-bottom: 150px;
+}
+
+.services-cards {
+    display: flex;
+    gap: 120px;
+    justify-content: center;
+}
+
+.service-card {
+    width: 728px;
+    height: 295px;
+    background: #24303c;
+    backdrop-filter: blur(55.35px);
+    border-radius: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s;
+}
+
+.service-card:hover {
+    transform: translateY(-10px);
+}
+
+.service-title {
+    font-size: 48px;
+    font-weight: 800;
+    background-image: linear-gradient(90deg, rgb(205, 181, 155) 0%, rgb(154, 136, 116) 32.219%, rgb(179, 158, 136) 68.222%, rgb(205, 181, 155) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* Responsive Design */
+@media (max-width: 1600px) {
+    .channels {
+        gap: 100px;
+        padding: 0 60px;
+    }
+    
+    .services-cards {
+        gap: 60px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .nav-links {
+        gap: 80px;
+    }
+    
+    .channels {
+        flex-direction: column;
+        gap: 80px;
+    }
+    
+    .post-cards {
+        flex-wrap: wrap;
+        gap: 30px;
+    }
+    
+    .services-cards {
+        flex-direction: column;
+        align-items: center;
+        gap: 40px;
+    }
+}
+
+@media (max-width: 768px) {
+    .navbar {
+        padding: 0 20px;
+    }
+    
+    .nav-links {
+        gap: 30px;
+        font-size: 20px;
+    }
+    
+    .nav-link {
+        font-size: 18px;
+    }
+    
+    .lang-btn {
+        right: 20px;
+    }
+    
+    .lang-button {
+        width: 100px;
+        height: 35px;
+        font-size: 16px;
+    }
+    
+    .home-section,
+    .services-section {
+        padding: 30px 20px;
+    }
+    
+    .post-cards {
+        gap: 20px;
+    }
+    
+    .card {
+        width: 280px;
+        height: 390px;
+    }
+    
+    .service-card {
+        width: 100%;
+        max-width: 500px;
+    }
+    
+    .service-title {
+        font-size: 32px;
+    }
+}
+
+@media (max-width: 480px) {
+    .nav-links {
+        gap: 15px;
+    }
+    
+    .nav-link {
+        font-size: 14px;
+    }
+    
+    .channel-name {
+        font-size: 24px;
+    }
+    
+    .channel-description {
+        font-size: 18px;
+    }
+    
+    .channel-buttons {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .post-cards {
+        flex-direction: column;
+        align-items: center;
+    }
+}
