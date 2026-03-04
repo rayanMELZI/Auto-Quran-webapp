@@ -158,7 +158,8 @@ def download_quran_video(
 
     ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
     dl_opts: Dict[str, Any] = {
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio/best[ext=mp4]/best",
+        # "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio/best[ext=mp4]/best",
+        "format": "best",
         "merge_output_format": "mp4",
         "outtmpl": str(output),
         "overwrites": True,
@@ -173,6 +174,7 @@ def download_quran_video(
                 "preferedformat": "mp4",
             }
         ],
+        'nocheckcertificate': True
     }
 
     try:

@@ -527,7 +527,7 @@ button.danger:hover:not(:disabled) {
             <!-- Step 3: Extract Text Overlay -->
             <div class="step">
                 <div class="step-header">
-                    <span class="step-title">3. Extract Text Overlay (Optional)</span>
+                    <span class="step-title">3. Extract Text Overlay</span>
                     <span class="step-status status-pending" id="status-overlay">Pending</span>
                 </div>
                 <button onclick="extractText()" id="btn-overlay" disabled>Extract Text</button>
@@ -780,7 +780,7 @@ async function updatePipelineStatus() {
         document.getElementById('info-video').textContent = data.has_video ? `✅ ${data.video_title || 'Ready'}` : '❌ Not ready';
         document.getElementById('info-video').style.color = data.has_video ? '#28a745' : '#999';
         
-        document.getElementById('info-overlay').textContent = data.has_overlay ? '✅ Ready' : '⚪ Optional';
+        document.getElementById('info-overlay').textContent = data.has_overlay ? '✅ Ready' : '❌ Not ready';
         document.getElementById('info-overlay').style.color = data.has_overlay ? '#28a745' : '#999';
         
         document.getElementById('info-final').textContent = data.has_final ? '✅ Ready' : '❌ Not ready';
@@ -881,7 +881,7 @@ async function extractText() {
         
         if (data.success) {
             updateStatus('overlay', 'completed', data.message);
-            showPreview('overlay', data.preview_url);
+            // showPreview('overlay', data.preview_url);
             showNotification('Success!', data.message, 'success');
         } else {
             updateStatus('overlay', 'error', data.message);
