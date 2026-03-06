@@ -157,30 +157,65 @@ def download_quran_video(
         output.unlink()
 
     ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-    dl_opts: Dict[str, Any] = {
-        # "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio/best[ext=mp4]/best",
-        "format": "best",
-        "merge_output_format": "mp4",
-        "outtmpl": str(output),
-        "overwrites": True,
-        "nopart": True,
-        "noplaylist": True,
-        "ffmpeg_location": ffmpeg_path,
-        "quiet": False,
-        "no_warnings": True,
-        "postprocessors": [
-            {
-                "key": "FFmpegVideoConvertor",
-                "preferedformat": "mp4",
-            }
-        ],
-        'nocheckcertificate': True
-    }
-
+    
+    # Download video and audio separately, then merge with full control
+    temp_video = output.parent / f"{output.stem}_video.mp4"
+    temp_audio = output.parent / f"{output.stem}_audio.m4a"
+    
     try:
-        with yt_dlp.YoutubeDL(cast(Any, dl_opts)) as ydl:
+        # Download video only
+        video_opts: Dict[str, Any] = {
+            "format": "bestvideo[ext=mp4]/bestvideo",
+            "outtmpl": str(temp_video),
+            "quiet": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+        }
+        with yt_dlp.YoutubeDL(cast(Any, video_opts)) as ydl:
             ydl.download([resolved_video_url])
+        
+        # Download audio only
+        audio_opts: Dict[str, Any] = {
+            "format": "bestaudio[ext=m4a]/bestaudio",
+            "outtmpl": str(temp_audio),
+            "quiet": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+        }
+        with yt_dlp.YoutubeDL(cast(Any, audio_opts)) as ydl:
+            ydl.download([resolved_video_url])
+        
+        # Manually merge with FFmpeg
+        import subprocess
+        merge_cmd = [
+            ffmpeg_path,
+            "-i", str(temp_video),
+            "-i", str(temp_audio),
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-strict", "experimental",
+            str(output),
+            "-y"
+        ]
+        
+        result = subprocess.run(merge_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"FFmpeg merge error: {result.stderr}")
+            raise Exception("Failed to merge video and audio")
+        
+        # Clean up temp files
+        if temp_video.exists():
+            temp_video.unlink()
+        if temp_audio.exists():
+            temp_audio.unlink()
+            
     except Exception as exc:
+        # Clean up temp files on error
+        if temp_video.exists():
+            temp_video.unlink()
+        if temp_audio.exists():
+            temp_audio.unlink()
         print(f"Error downloading selected video: {exc}")
         return None, None, _build_meta(
             video_id=selected_id,
