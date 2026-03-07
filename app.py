@@ -885,7 +885,7 @@ configure_cronjob()
 
 if __name__ == '__main__':
     # Bind to 0.0.0.0 for cloud deployment, localhost for development
-    host = os.getenv('FLASK_HOST', '0.0.0.0')
+    # host = os.getenv('FLASK_HOST', '0.0.0.0')
     port = int(os.getenv('PORT', 5000))
-    app.run(host=host, port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False)
     app.run(debug=True, port=5000)
