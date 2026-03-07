@@ -7,6 +7,18 @@ import imageio_ffmpeg
 import yt_dlp
 
 
+def _get_common_ydl_opts() -> Dict[str, Any]:
+    """Get common yt-dlp options to bypass bot detection."""
+    return {
+        "nocheckcertificate": True,
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+        # Try to use browser cookies if available (helps with bot detection)
+        # Tries Chrome first, then Firefox, then Edge
+        "cookiesfrombrowser": ("chrome",),
+    }
+
+
 def _load_downloaded_ids(file_path: Path) -> Set[str]:
     if not file_path.exists():
         file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,6 +77,7 @@ def download_quran_video(
     downloaded_ids = _load_downloaded_ids(downloaded_file)
 
     info_opts: Dict[str, Any] = {
+        **_get_common_ydl_opts(),
         "extract_flat": True,
         "skip_download": True,
         "quiet": True,
@@ -76,7 +89,12 @@ def download_quran_video(
 
     if video_url:
         try:
-            video_info_opts: Dict[str, Any] = {"quiet": True, "skip_download": True, "ignoreerrors": True}
+            video_info_opts: Dict[str, Any] = {
+                **_get_common_ydl_opts(),
+                "quiet": True,
+                "skip_download": True,
+                "ignoreerrors": True,
+            }
             with yt_dlp.YoutubeDL(cast(Any, video_info_opts)) as ydl:
                 selected = cast(Dict[str, Any], ydl.extract_info(video_url, download=False))
         except Exception as exc:
@@ -165,22 +183,22 @@ def download_quran_video(
     try:
         # Download video only
         video_opts: Dict[str, Any] = {
+            **_get_common_ydl_opts(),
             "format": "bestvideo[ext=mp4]/bestvideo",
             "outtmpl": str(temp_video),
             "quiet": True,
             "no_warnings": True,
-            "nocheckcertificate": True,
         }
         with yt_dlp.YoutubeDL(cast(Any, video_opts)) as ydl:
             ydl.download([resolved_video_url])
         
         # Download audio only
         audio_opts: Dict[str, Any] = {
+            **_get_common_ydl_opts(),
             "format": "bestaudio[ext=m4a]/bestaudio",
             "outtmpl": str(temp_audio),
             "quiet": True,
             "no_warnings": True,
-            "nocheckcertificate": True,
         }
         with yt_dlp.YoutubeDL(cast(Any, audio_opts)) as ydl:
             ydl.download([resolved_video_url])
