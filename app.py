@@ -1,10 +1,14 @@
 import os
+import json
 from copy import deepcopy
 from pathlib import Path
-from threading import Lock, Thread
+from threading import Lock, Thread, Event
 from typing import Dict, Optional
+from datetime import datetime
 
 from flask import Flask, render_template, jsonify, request, send_file
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from logic.scripts.download_image import download_nature_image
 from logic.scripts.download_quran_video import download_quran_video
@@ -14,9 +18,56 @@ from logic.scripts.post_to_instagram import post_to_instagram
 
 app = Flask(__name__)
 
+# Global stop event for canceling operations
+stop_event = Event()
+
+# Cronjob scheduler
+scheduler = BackgroundScheduler()
+scheduler.start()
+
+# Settings file path
+SETTINGS_FILE = 'assets/settings.json'
+
+# Canonical defaults used for first run and reset-to-default operations
+DEFAULT_SETTINGS = {
+    'default_channel_url': 'https://www.youtube.com/@Am9li9/videos',
+    'default_keyword': 'سورة',
+    'default_caption': '⚠️لا تنسوا اخواننا المستضعفين بالدعاء رحمكم الله⚠️\n\n#اكتب_شي_تؤجر_عليه #لاتنسى_ذكر_الله\n\n#الله #اكتب_شي_تؤجر_عليه #الله_أكبر #قران_كريم #لاتنسى_ذكر_الله #تلاوات #اللهم_امين',
+    'default_image_path': None,
+    'cronjob_enabled': False,
+    'cronjob_interval_hours': 24,
+    'cronjob_time': '09:00',
+}
+
 # Ensure required directories exist
 os.makedirs('assets', exist_ok=True)
 os.makedirs('output', exist_ok=True)
+
+
+def load_settings():
+    """Load settings from JSON file"""
+    if not Path(SETTINGS_FILE).exists():
+        return deepcopy(DEFAULT_SETTINGS)
+    try:
+        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+            saved = json.load(f)
+            merged = deepcopy(DEFAULT_SETTINGS)
+            if isinstance(saved, dict):
+                merged.update(saved)
+            return merged
+    except Exception:
+        return deepcopy(DEFAULT_SETTINGS)
+
+
+def save_settings(settings):
+    """Save settings to JSON file"""
+    try:
+        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"Error saving settings: {e}")
+        return False
 
 # Store pipeline state
 pipeline_state: Dict[str, Optional[str]] = {
@@ -341,15 +392,106 @@ def api_post_instagram():
         }), 500
 
 
-def _run_full_pipeline_bg(skip_text_overlay, auto_post, caption, channel_url, keyword, video_url):
+def _scheduled_pipeline_job():
+    """Scheduled cronjob that runs the pipeline automatically"""
+    print(f"[CRONJOB] Starting scheduled pipeline at {datetime.now()}")
+    settings = load_settings()
+    
+    # Use saved settings for the pipeline
+    channel_url = settings.get('default_channel_url', 'https://www.youtube.com/@Am9li9/videos')
+    keyword = settings.get('default_keyword', 'سورة')
+    caption = settings.get('default_caption', '')
+    
+    # Run pipeline with retry logic (retry for the current day only)
+    max_retries = 5
+    retry_count = 0
+    start_date = datetime.now().date()
+    
+    while retry_count < max_retries:
+        # Check if we're still on the same day
+        if datetime.now().date() != start_date:
+            print(f"[CRONJOB] Day changed, stopping retries for previous day")
+            break
+        
+        if retry_count > 0:
+            print(f"[CRONJOB] Retry attempt {retry_count}/{max_retries}")
+        
+        try:
+            # Reset stop event before running
+            stop_event.clear()
+            _run_full_pipeline_bg(skip_text_overlay=False, auto_post=True, caption=caption, 
+                                  channel_url=channel_url, keyword=keyword, video_url=None, is_cronjob=True)
+            
+            # Check if pipeline completed successfully
+            with progress_lock:
+                if progress_state.get('overall_percent') == 100.0:
+                    print(f"[CRONJOB] Pipeline completed successfully")
+                    return
+        except Exception as e:
+            print(f"[CRONJOB] Pipeline failed with error: {e}")
+        
+        retry_count += 1
+        if retry_count < max_retries:
+            import time
+            time.sleep(300)  # Wait 5 minutes before retry
+    
+    print(f"[CRONJOB] Pipeline failed after {retry_count} attempts")
+
+
+def configure_cronjob():
+    """Configure and schedule the cronjob based on settings"""
+    settings = load_settings()
+    
+    # Remove all existing jobs
+    scheduler.remove_all_jobs()
+    
+    if not settings.get('cronjob_enabled', False):
+        print("[CRONJOB] Cronjob is disabled")
+        return
+    
+    interval_hours = settings.get('cronjob_interval_hours', 24)
+    job_time = settings.get('cronjob_time', '09:00')
+    
+    try:
+        hour, minute = map(int, job_time.split(':'))
+        
+        # Schedule job at specific time, repeating every X hours
+        if interval_hours == 24:
+            # Once per day at specific time
+            trigger = CronTrigger(hour=hour, minute=minute)
+        else:
+            # Every X hours starting at specific time
+            trigger = CronTrigger(hour=f'*/{interval_hours}', minute=minute)
+        
+        scheduler.add_job(_scheduled_pipeline_job, trigger, id='pipeline_cronjob', replace_existing=True)
+        print(f"[CRONJOB] Scheduled to run every {interval_hours} hours starting at {job_time}")
+    except Exception as e:
+        print(f"[CRONJOB] Error configuring cronjob: {e}")
+
+
+def _run_full_pipeline_bg(skip_text_overlay, auto_post, caption, channel_url, keyword, video_url, is_cronjob=False):
     """Background task for full pipeline execution"""
     step_order = ['image', 'video', 'overlay', 'final'] + (['post'] if auto_post else [])
     _reset_progress('full-pipeline', step_order)
     
     try:
         # Step 1: Download image
+        if stop_event.is_set():
+            _finalize_progress('Pipeline cancelled by user')
+            return
+            
         _set_step('image', status='processing', progress=0, message='Downloading image...')
-        image_path = download_nature_image()
+        
+        # Check if using default image
+        settings = load_settings()
+        default_image = settings.get('default_image_path')
+        
+        if default_image and Path(default_image).exists():
+            image_path = default_image
+            print(f"Using default image: {image_path}")
+        else:
+            image_path = download_nature_image()
+        
         if not image_path:
             _set_step('image', status='error', message='Failed to download image')
             _finalize_progress('Pipeline failed at image step')
@@ -364,6 +506,10 @@ def _run_full_pipeline_bg(skip_text_overlay, auto_post, caption, channel_url, ke
         _set_step('image', status='completed', progress=100, message=image_result['message'], result=image_result)
         
         # Step 2: Download video
+        if stop_event.is_set():
+            _finalize_progress('Pipeline cancelled by user')
+            return
+            
         _set_step('video', status='processing', progress=0, message='Downloading video...')
         video_path, video_title, video_meta = download_quran_video(
             channel_url=channel_url,
@@ -386,6 +532,10 @@ def _run_full_pipeline_bg(skip_text_overlay, auto_post, caption, channel_url, ke
         _set_step('video', status='completed', progress=100, message=video_result['message'], result=video_result)
         
         # Step 3: Extract text overlay (optional)
+        if stop_event.is_set():
+            _finalize_progress('Pipeline cancelled by user')
+            return
+            
         text_overlay_path = None
         if not skip_text_overlay:
             _set_step('overlay', status='processing', progress=0, message='Extracting text overlay...')
@@ -417,6 +567,10 @@ def _run_full_pipeline_bg(skip_text_overlay, auto_post, caption, channel_url, ke
             _set_step('overlay', status='skipped', progress=100, message=overlay_result['message'], result=overlay_result)
         
         # Step 4: Create final video
+        if stop_event.is_set():
+            _finalize_progress('Pipeline cancelled by user')
+            return
+            
         _set_step('final', status='processing', progress=0, message='Creating final video...')
         final_video_path = create_final_video(
             image_path,
@@ -439,6 +593,10 @@ def _run_full_pipeline_bg(skip_text_overlay, auto_post, caption, channel_url, ke
         
         # Step 5: Post to Instagram (optional)
         if auto_post:
+            if stop_event.is_set():
+                _finalize_progress('Pipeline cancelled by user')
+                return
+                
             _set_step('post', status='processing', progress=0, message='Posting to Instagram...')
             if not caption:
                 caption = f"{video_title}\n\n#Quran #Islam #QuranVerses" if video_title else "Daily Quran verse"
@@ -478,9 +636,12 @@ def api_run_full_pipeline():
         keyword = data.get('keyword', 'سورة')
         video_url = data.get('video_url')
 
+        # Reset stop event
+        stop_event.clear()
+
         bg_thread = Thread(
             target=_run_full_pipeline_bg,
-            args=(skip_text_overlay, auto_post, caption, channel_url, keyword, video_url),
+            args=(skip_text_overlay, auto_post, caption, channel_url, keyword, video_url, False),
             daemon=True
         )
         bg_thread.start()
@@ -563,3 +724,164 @@ def api_reset_downloaded_videos():
         return jsonify({'success': True, 'message': 'Downloaded videos list has been reset'})
     except Exception as e:
         return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+
+@app.route('/api/stop-all', methods=['POST'])
+def api_stop_all():
+    """Stop all running processes"""
+    try:
+        stop_event.set()
+        return jsonify({'success': True, 'message': 'Stop signal sent to all running processes'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+
+@app.route('/api/settings', methods=['GET', 'POST'])
+def api_settings():
+    """Get or update user settings"""
+    if request.method == 'GET':
+        settings = load_settings()
+        return jsonify({'success': True, 'settings': settings})
+    else:
+        try:
+            data = request.get_json() or {}
+            settings = load_settings()
+            settings.update(data)
+            
+            if save_settings(settings):
+                # Reconfigure cronjob if settings changed
+                if 'cronjob_enabled' in data or 'cronjob_interval_hours' in data or 'cronjob_time' in data:
+                    configure_cronjob()
+                
+                return jsonify({'success': True, 'message': 'Settings saved successfully'})
+            else:
+                return jsonify({'success': False, 'message': 'Failed to save settings'}), 500
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+
+@app.route('/api/settings/reset-default', methods=['POST'])
+def api_settings_reset_default():
+    """Reset one setting key to its predefined default value"""
+    try:
+        data = request.get_json() or {}
+        key = data.get('key')
+        if key not in DEFAULT_SETTINGS:
+            return jsonify({'success': False, 'message': 'Invalid settings key'}), 400
+
+        settings = load_settings()
+        settings[key] = deepcopy(DEFAULT_SETTINGS[key])
+
+        if not save_settings(settings):
+            return jsonify({'success': False, 'message': 'Failed to save settings'}), 500
+
+        if key in ('cronjob_enabled', 'cronjob_interval_hours', 'cronjob_time'):
+            configure_cronjob()
+
+        return jsonify({
+            'success': True,
+            'message': f'{key} reset to default',
+            'key': key,
+            'value': settings.get(key),
+            'settings': settings,
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+
+@app.route('/api/upload-image', methods=['POST'])
+def api_upload_image():
+    """Upload a custom image"""
+    try:
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'message': 'No image file provided'}), 400
+        
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': 'No file selected'}), 400
+        
+        # Save the uploaded image
+        upload_path = 'assets/custom_image.jpg'
+        file.save(upload_path)
+        
+        # Optionally save as default
+        save_as_default = request.form.get('save_as_default') == 'true'
+        if save_as_default:
+            settings = load_settings()
+            settings['default_image_path'] = upload_path
+            save_settings(settings)
+        
+        # Update pipeline state
+        pipeline_state['image_path'] = upload_path
+        
+        return jsonify({
+            'success': True,
+            'message': 'Image uploaded successfully',
+            'path': upload_path,
+            'preview_url': '/api/preview/custom',
+            'saved_as_default': save_as_default
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+
+@app.route('/api/preview/custom')
+def api_preview_custom():
+    """Serve custom uploaded image"""
+    try:
+        path = 'assets/custom_image.jpg'
+        if Path(path).exists():
+            return send_file(path)
+        else:
+            return jsonify({'error': 'File not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cronjob/status', methods=['GET'])
+def api_cronjob_status():
+    """Get cronjob status"""
+    try:
+        settings = load_settings()
+        jobs = scheduler.get_jobs()
+        
+        return jsonify({
+            'success': True,
+            'enabled': settings.get('cronjob_enabled', False),
+            'interval_hours': settings.get('cronjob_interval_hours', 24),
+            'time': settings.get('cronjob_time', '09:00'),
+            'active_jobs': len(jobs),
+            'next_run': str(jobs[0].next_run_time) if jobs else None
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+
+@app.route('/api/cronjob/configure', methods=['POST'])
+def api_cronjob_configure():
+    """Configure and start/stop cronjob"""
+    try:
+        data = request.get_json() or {}
+        settings = load_settings()
+        
+        if 'enabled' in data:
+            settings['cronjob_enabled'] = data['enabled']
+        if 'interval_hours' in data:
+            settings['cronjob_interval_hours'] = data['interval_hours']
+        if 'time' in data:
+            settings['cronjob_time'] = data['time']
+        
+        save_settings(settings)
+        configure_cronjob()
+        
+        return jsonify({'success': True, 'message': 'Cronjob configured successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+
+# Initialize cronjob on startup
+configure_cronjob()
+
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)

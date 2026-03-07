@@ -470,6 +470,95 @@ button.danger:hover:not(:disabled) {
 .advanced-tools .danger {
     margin-top: 10px;
 }
+
+/* Right panel layout + conditional sticky mode */
+.right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.right-panel.is-sticky {
+    position: sticky;
+    top: 20px;
+    align-self: flex-start;
+}
+
+@media (max-width: 900px) {
+    .right-panel,
+    .right-panel.is-sticky {
+        position: static;
+        top: auto;
+    }
+}
+
+/* Smooth scrolling */
+html {
+    scroll-behavior: smooth;
+}
+
+/* File upload styling */
+.file-upload-box {
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    margin-bottom: 15px;
+}
+
+.file-upload-box:hover {
+    border-color: #667eea;
+    background: #f8f9fa;
+}
+
+.file-upload-box input[type="file"] {
+    display: none;
+}
+
+.file-upload-preview {
+    margin-top: 10px;
+    max-width: 100%;
+    border-radius: 8px;
+}
+
+.default-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.btn-mini {
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: 0.82em;
+    line-height: 1;
+    font-weight: 700;
+}
+
+.btn-outline {
+    background: #eef2ff;
+    color: #334155;
+    border: 1px solid #c7d2fe;
+}
+
+.btn-outline:hover:not(:disabled) {
+    background: #e2e8f0;
+    box-shadow: 0 4px 10px rgba(30, 41, 59, 0.14);
+}
+
+.btn-warn {
+    background: #fff1f2;
+    color: #9f1239;
+    border: 1px solid #fecdd3;
+}
+
+.btn-warn:hover:not(:disabled) {
+    background: #ffe4e6;
+    box-shadow: 0 4px 10px rgba(159, 18, 57, 0.16);
+}
 </style>
 </head>
 
@@ -487,12 +576,29 @@ button.danger:hover:not(:disabled) {
             <h2>📋 Individual Steps</h2>
 
             <!-- Step 1: Download Image -->
-            <div class="step">
+            <div class="step" id="step-image">
                 <div class="step-header">
                     <span class="step-title">1. Download Nature Image</span>
                     <span class="step-status status-pending" id="status-image">Pending</span>
                 </div>
-                <button onclick="downloadImage()" id="btn-image">Download Image</button>
+                
+                <!-- File upload option -->
+                <div class="file-upload-box" onclick="document.getElementById('image-file-input').click()">
+                    <input type="file" id="image-file-input" accept="image/*" onchange="uploadCustomImage(event)">
+                    <p>📁 Click to upload custom image</p>
+                    <small style="color: #666;">Or use the button below to download from Unsplash</small>
+                </div>
+                <div id="custom-image-preview" style="display:none;">
+                    <img class="file-upload-preview" id="custom-image-preview-img" alt="Custom image">
+                </div>
+                
+                <div class="button-group">
+                    <button onclick="downloadImage()" id="btn-image">Download from Unsplash</button>
+                </div>
+                <div class="default-actions">
+                    <button type="button" class="btn-mini btn-outline" onclick="saveDefaultImage()">Save As Default Image</button>
+                    <button type="button" class="btn-mini btn-warn" onclick="resetDefaultImage()">Reset To Default</button>
+                </div>
                 <div class="preview-box" id="preview-image">
                     <img id="img-preview" alt="Nature background">
                 </div>
@@ -500,7 +606,7 @@ button.danger:hover:not(:disabled) {
             </div>
 
             <!-- Step 2: Download Video -->
-            <div class="step">
+            <div class="step" id="step-video">
                 <div class="step-header">
                     <span class="step-title">2. Download Quran Video</span>
                     <span class="step-status status-pending" id="status-video">Pending</span>
@@ -512,10 +618,18 @@ button.danger:hover:not(:disabled) {
                 <div class="input-group">
                     <label>Optional Channel URL</label>
                     <input id="channel-url-input" type="text" value="https://www.youtube.com/@Am9li9/videos">
+                    <div class="default-actions">
+                        <button type="button" class="btn-mini btn-outline" onclick="saveDefaultChannelUrl()">Save As Default</button>
+                        <button type="button" class="btn-mini btn-warn" onclick="resetDefaultChannelUrl()">Reset To Default</button>
+                    </div>
                 </div>
                 <div class="input-group">
                     <label>Keyword (used with channel URL)</label>
                     <input id="keyword-input" type="text" value="سورة">
+                    <div class="default-actions">
+                        <button type="button" class="btn-mini btn-outline" onclick="saveDefaultKeyword()">Save As Default</button>
+                        <button type="button" class="btn-mini btn-warn" onclick="resetDefaultKeyword()">Reset To Default</button>
+                    </div>
                 </div>
                 <button onclick="downloadVideo()" id="btn-video">Download Video</button>
                 <div class="preview-box" id="preview-video">
@@ -525,7 +639,7 @@ button.danger:hover:not(:disabled) {
             </div>
 
             <!-- Step 3: Extract Text Overlay -->
-            <div class="step">
+            <div class="step" id="step-overlay">
                 <div class="step-header">
                     <span class="step-title">3. Extract Text Overlay</span>
                     <span class="step-status status-pending" id="status-overlay">Pending</span>
@@ -538,7 +652,7 @@ button.danger:hover:not(:disabled) {
             </div>
 
             <!-- Step 4: Create Final Video -->
-            <div class="step">
+            <div class="step" id="step-final">
                 <div class="step-header">
                     <span class="step-title">4. Create Final Video</span>
                     <span class="step-status status-pending" id="status-final">Pending</span>
@@ -561,9 +675,9 @@ button.danger:hover:not(:disabled) {
         </div>
 
         <!-- Preview & Actions Panel -->
-        <div>
+        <div class="right-panel" id="right-panel">
             <!-- Full Pipeline Card -->
-            <div class="card full-pipeline" style="margin-bottom: 20px;">
+            <div class="card full-pipeline">
                 <h2>⚡ Quick Actions</h2>
                 <div class="input-group">
                     <label style="color: white;">Run with options</label>
@@ -582,6 +696,7 @@ button.danger:hover:not(:disabled) {
                 <details class="advanced-tools">
                     <summary>Advanced tools</summary>
                     <button onclick="resetDownloadedVideosList()" class="danger" type="button">Reset Downloaded Videos List</button>
+                    <button onclick="stopAllProcesses()" class="danger" type="button">Stop All Running Processes</button>
                 </details>
                 <div class="progress-wrap" id="pipeline-progress-wrap" style="display:none;">
                     <div class="progress-label" style="color:white; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -600,7 +715,7 @@ button.danger:hover:not(:disabled) {
             </div>
 
             <!-- Instagram Post Card -->
-            <div class="card">
+            <div class="card" id="step-post">
                 <h2>📱 Post to Instagram</h2>
                 
                 <div class="input-group">
@@ -610,6 +725,10 @@ button.danger:hover:not(:disabled) {
 #اكتب_شي_تؤجر_عليه #لاتنسى_ذكر_الله
 
 #الله #اكتب_شي_تؤجر_عليه #الله_أكبر #قران_كريم #لاتنسى_ذكر_الله #تلاوات #اللهم_امين</textarea>
+                    <div class="default-actions">
+                        <button type="button" class="btn-mini btn-outline" onclick="saveDefaultCaption()">Save As Default Caption</button>
+                        <button type="button" class="btn-mini btn-warn" onclick="resetDefaultCaption()">Reset To Default</button>
+                    </div>
                 </div>
 
                 <button onclick="postToInstagram()" id="btn-post" class="success" disabled>
@@ -618,8 +737,40 @@ button.danger:hover:not(:disabled) {
                 <div class="message" id="msg-post"></div>
             </div>
 
+            
+            <!-- Cronjob Configuration Card -->
+            <div class="card">
+                <h2>⏰ Automated Scheduling</h2>
+                <p style="margin-bottom: 15px; color: #666; font-size: 0.9em;">Automatically run the full pipeline at scheduled intervals</p>
+                
+                <div class="toggle-row" style="background: rgba(102, 126, 234, 0.1); border-color: #667eea;">
+                    <span class="toggle-label" style="color: #333;">Enable Cronjob</span>
+                    <label class="switch">
+                        <input id="cronjob-enabled-toggle" type="checkbox" onchange="updateCronjobStatus()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                
+                <div id="cronjob-settings" style="display:none; margin-top: 15px;">
+                    <div class="input-group">
+                        <label>Run every (hours)</label>
+                        <input id="cronjob-interval" type="number" min="1" max="168" value="24" placeholder="24">
+                        <small style="color: #666;">Enter 24 for once daily</small>
+                    </div>
+                    <div class="input-group">
+                        <label>Start time</label>
+                        <input id="cronjob-time" type="time" value="09:00">
+                    </div>
+                    <button onclick="saveCronjobConfig()" class="success">Save Schedule</button>
+                    <div id="cronjob-status" style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px; font-size: 0.9em; display:none;">
+                        <p><strong>Status:</strong> <span id="cronjob-status-text">Not configured</span></p>
+                        <p><strong>Next run:</strong> <span id="cronjob-next-run">N/A</span></p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Current Status Card -->
-            <div class="card" style="margin-top: 20px;">
+            <div class="card">
                 <h2>📊 Pipeline Status</h2>
                 <div id="status-info">
                     <p>✓ Image: <span id="info-image" style="color: #999;">Not downloaded</span></p>
@@ -641,6 +792,7 @@ button.danger:hover:not(:disabled) {
 <script>
 let progressPollHandle = null;
 const pipelinePreviewShown = new Set();
+let currentImagePath = null;
 
 // Helper function to show notifications
 function showNotification(title, message, type = 'info') {
@@ -801,6 +953,7 @@ async function downloadImage() {
     btn.disabled = true;
     btn.innerHTML = 'Downloading... <span class="loader"></span>';
     updateStatus('image', 'processing');
+    scrollToStep('image');
     
     try {
         const response = await fetch('/api/download-image', {
@@ -815,6 +968,7 @@ async function downloadImage() {
             updateStatus('image', 'completed', data.message);
             showPreview('image', data.preview_url);
             showNotification('Success!', data.message, 'success');
+            currentImagePath = data.path || null;
         } else {
             updateStatus('image', 'error', data.message);
             showNotification('Error', data.message, 'error');
@@ -824,7 +978,7 @@ async function downloadImage() {
         showNotification('Error', 'Failed to download image', 'error');
     } finally {
         btn.disabled = false;
-        btn.innerHTML = 'Download Image';
+        btn.innerHTML = 'Download from Unsplash';
         updatePipelineStatus();
     }
 }
@@ -835,6 +989,7 @@ async function downloadVideo() {
     btn.disabled = true;
     btn.innerHTML = 'Downloading... <span class="loader"></span>';
     updateStatus('video', 'processing');
+    scrollToStep('video');
     
     try {
         const source = getVideoSourcePayload();
@@ -870,6 +1025,7 @@ async function extractText() {
     btn.disabled = true;
     btn.innerHTML = 'Extracting... <span class="loader"></span>';
     updateStatus('overlay', 'processing');
+    scrollToStep('overlay');
     
     try {
         const response = await fetch('/api/extract-text', {
@@ -881,6 +1037,7 @@ async function extractText() {
         
         if (data.success) {
             updateStatus('overlay', 'completed', data.message);
+            // Preview disabled - buggy
             // showPreview('overlay', data.preview_url);
             showNotification('Success!', data.message, 'success');
         } else {
@@ -906,6 +1063,7 @@ async function createFinal() {
     btn.disabled = true;
     btn.innerHTML = 'Creating... <span class="loader"></span>';
     updateStatus('final', 'processing');
+    scrollToStep('final');
 
     startProgressPolling('create-final', (progressData) => {
         const finalStep = progressData.steps?.final;
@@ -950,6 +1108,7 @@ async function postToInstagram() {
     
     btn.disabled = true;
     btn.innerHTML = 'Posting... <span class="loader"></span>';
+    scrollToStep('post');
     
     try {
         const response = await fetch('/api/post-instagram', {
@@ -1018,7 +1177,7 @@ async function runFullPipeline() {
             startProgressPolling('full-pipeline', async (progressData) => {
                 setBar('pipeline-progress-fill', 'pipeline-progress-text', progressData.overall_percent || 0);
                 
-                // Update current step display
+                // Update current step display and auto-scroll
                 const stepNames = {
                     'image': 'Downloading image...',
                     'video': 'Downloading video...',
@@ -1029,6 +1188,11 @@ async function runFullPipeline() {
                 const currentStep = progressData.current_step || 'Starting pipeline...';
                 const stepDisplay = stepNames[currentStep] || currentStep;
                 document.getElementById('current-step-display').textContent = stepDisplay;
+                
+                // Auto-scroll to current step
+                if (currentStep && stepNames[currentStep]) {
+                    scrollToStep(currentStep);
+                }
                 
                 const stepMap = progressData.steps || {};
                 const results = [];
@@ -1132,8 +1296,305 @@ async function resetPipeline() {
     }
 }
 
+// Auto-scroll to step when it starts processing
+function scrollToStep(step) {
+    const stepElement = document.getElementById(`step-${step}`);
+    if (stepElement) {
+        stepElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+function updateRightPanelStickyMode() {
+    const panel = document.getElementById('right-panel');
+    if (!panel) return;
+
+    if (window.innerWidth <= 900) {
+        panel.classList.remove('is-sticky');
+        return;
+    }
+
+    panel.classList.remove('is-sticky');
+
+    const topOffset = 20;
+    const bottomOffset = 20;
+    const availableHeight = window.innerHeight - topOffset - bottomOffset;
+    const panelHeight = panel.scrollHeight;
+
+    panel.classList.toggle('is-sticky', panelHeight <= availableHeight);
+}
+
+// Upload custom image
+async function uploadCustomImage(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Show preview
+    const preview = document.getElementById('custom-image-preview');
+    const previewImg = document.getElementById('custom-image-preview-img');
+    previewImg.src = URL.createObjectURL(file);
+    preview.style.display = 'block';
+    
+    const formData = new FormData();
+    formData.append('image', file);
+    
+    try {
+        const response = await fetch('/api/upload-image', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            updateStatus('image', 'completed', data.message);
+            showNotification('Success!', data.message, 'success');
+            currentImagePath = data.path || null;
+            updatePipelineStatus();
+        } else {
+            showNotification('Error', data.message, 'error');
+        }
+    } catch (error) {
+        showNotification('Error', 'Failed to upload image', 'error');
+    }
+}
+
+// Save settings
+async function saveSettings(settings) {
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        
+        const data = await response.json();
+        return data.success;
+    } catch (error) {
+        console.error('Error saving settings:', error);
+        return false;
+    }
+}
+
+// Load settings
+async function loadSettings() {
+    try {
+        const response = await fetch('/api/settings');
+        const data = await response.json();
+        if (data.success) {
+            return data.settings;
+        }
+    } catch (error) {
+        console.error('Error loading settings:', error);
+    }
+    return {};
+}
+
+// Apply loaded settings to UI
+async function applySettings() {
+    const settings = await loadSettings();
+    
+    if (settings.default_channel_url) {
+        document.getElementById('channel-url-input').value = settings.default_channel_url;
+    }
+    if (settings.default_keyword) {
+        document.getElementById('keyword-input').value = settings.default_keyword;
+    }
+    if (settings.default_caption) {
+        document.getElementById('caption-input').value = settings.default_caption;
+    }
+    if (settings.default_image_path) {
+        currentImagePath = settings.default_image_path;
+    }
+    
+    // Apply cronjob settings
+    if (settings.cronjob_enabled !== undefined) {
+        document.getElementById('cronjob-enabled-toggle').checked = settings.cronjob_enabled;
+        updateCronjobStatus();
+    }
+    if (settings.cronjob_interval_hours) {
+        document.getElementById('cronjob-interval').value = settings.cronjob_interval_hours;
+    }
+    if (settings.cronjob_time) {
+        document.getElementById('cronjob-time').value = settings.cronjob_time;
+    }
+}
+
+// Update cronjob UI visibility
+function updateCronjobStatus() {
+    const enabled = document.getElementById('cronjob-enabled-toggle').checked;
+    const settingsDiv = document.getElementById('cronjob-settings');
+    settingsDiv.style.display = enabled ? 'block' : 'none';
+    
+    if (enabled) {
+        loadCronjobStatus();
+    }
+}
+
+// Save cronjob configuration
+async function saveCronjobConfig() {
+    const enabled = document.getElementById('cronjob-enabled-toggle').checked;
+    const interval = parseInt(document.getElementById('cronjob-interval').value);
+    const time = document.getElementById('cronjob-time').value;
+    
+    if (!interval || interval < 1) {
+        showNotification('Error', 'Please enter a valid interval (at least 1 hour)', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/cronjob/configure', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                enabled: enabled,
+                interval_hours: interval,
+                time: time
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('Success!', 'Cronjob configured successfully', 'success');
+            loadCronjobStatus();
+        } else {
+            showNotification('Error', data.message, 'error');
+        }
+    } catch (error) {
+        showNotification('Error', 'Failed to configure cronjob', 'error');
+    }
+}
+
+// Load cronjob status
+async function loadCronjobStatus() {
+    try {
+        const response = await fetch('/api/cronjob/status');
+        const data = await response.json();
+        
+        if (data.success) {
+            const statusDiv = document.getElementById('cronjob-status');
+            statusDiv.style.display = 'block';
+            
+            document.getElementById('cronjob-status-text').textContent = 
+                data.enabled ? `Active (${data.active_jobs} job(s))` : 'Disabled';
+            document.getElementById('cronjob-next-run').textContent = 
+                data.next_run || 'Not scheduled';
+        }
+    } catch (error) {
+        console.error('Error loading cronjob status:', error);
+    }
+}
+
+// Stop all processes
+async function stopAllProcesses() {
+    if (!confirm('Are you sure you want to stop all running processes?')) return;
+    
+    try {
+        const response = await fetch('/api/stop-all', { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('Stopped', data.message, 'info');
+        } else {
+            showNotification('Error', data.message, 'error');
+        }
+    } catch (error) {
+        showNotification('Error', 'Failed to stop processes', 'error');
+    }
+}
+
+async function resetDefaultSetting(key) {
+    try {
+        const response = await fetch('/api/settings/reset-default', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key })
+        });
+        return await response.json();
+    } catch (error) {
+        return { success: false, message: 'Network error while resetting default' };
+    }
+}
+
+async function saveDefaultImage() {
+    if (!currentImagePath) {
+        showNotification('Error', 'No image available yet. Upload or download one first.', 'error');
+        return;
+    }
+    const ok = await saveSettings({ default_image_path: currentImagePath });
+    showNotification(ok ? 'Saved' : 'Error', ok ? 'Default image saved' : 'Failed to save default image', ok ? 'success' : 'error');
+}
+
+async function resetDefaultImage() {
+    const result = await resetDefaultSetting('default_image_path');
+    if (result.success) {
+        currentImagePath = result.value || null;
+        showNotification('Reset', 'Default image reset', 'info');
+    } else {
+        showNotification('Error', result.message || 'Failed to reset default image', 'error');
+    }
+}
+
+async function saveDefaultChannelUrl() {
+    const value = document.getElementById('channel-url-input').value.trim();
+    const ok = await saveSettings({ default_channel_url: value });
+    showNotification(ok ? 'Saved' : 'Error', ok ? 'Default channel URL saved' : 'Failed to save default channel URL', ok ? 'success' : 'error');
+}
+
+async function resetDefaultChannelUrl() {
+    const result = await resetDefaultSetting('default_channel_url');
+    if (result.success) {
+        document.getElementById('channel-url-input').value = result.value || '';
+        showNotification('Reset', 'Default channel URL restored', 'info');
+    } else {
+        showNotification('Error', result.message || 'Failed to reset channel URL', 'error');
+    }
+}
+
+async function saveDefaultKeyword() {
+    const value = document.getElementById('keyword-input').value.trim();
+    const ok = await saveSettings({ default_keyword: value });
+    showNotification(ok ? 'Saved' : 'Error', ok ? 'Default keyword saved' : 'Failed to save default keyword', ok ? 'success' : 'error');
+}
+
+async function resetDefaultKeyword() {
+    const result = await resetDefaultSetting('default_keyword');
+    if (result.success) {
+        document.getElementById('keyword-input').value = result.value || '';
+        showNotification('Reset', 'Default keyword restored', 'info');
+    } else {
+        showNotification('Error', result.message || 'Failed to reset keyword', 'error');
+    }
+}
+
+async function saveDefaultCaption() {
+    const value = document.getElementById('caption-input').value;
+    const ok = await saveSettings({ default_caption: value });
+    showNotification(ok ? 'Saved' : 'Error', ok ? 'Default caption saved' : 'Failed to save default caption', ok ? 'success' : 'error');
+}
+
+async function resetDefaultCaption() {
+    const result = await resetDefaultSetting('default_caption');
+    if (result.success) {
+        document.getElementById('caption-input').value = result.value || '';
+        showNotification('Reset', 'Default caption restored', 'info');
+    } else {
+        showNotification('Error', result.message || 'Failed to reset caption', 'error');
+    }
+}
+
 // Initialize on page load
 updatePipelineStatus();
+applySettings();
+updateRightPanelStickyMode();
+
+window.addEventListener('resize', updateRightPanelStickyMode);
+window.addEventListener('load', updateRightPanelStickyMode);
+document.addEventListener('toggle', (event) => {
+    if (event.target && event.target.classList && event.target.classList.contains('advanced-tools')) {
+        updateRightPanelStickyMode();
+    }
+}, true);
 </script>
 
 </body>
