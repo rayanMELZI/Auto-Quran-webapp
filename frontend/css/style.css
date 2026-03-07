@@ -1,0 +1,495 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.header {
+    text-align: center;
+    color: white;
+    margin-bottom: 30px;
+}
+
+.header h1 {
+    font-size: 2.5em;
+    margin-bottom: 10px;
+}
+
+.header p {
+    font-size: 1.1em;
+    opacity: 0.9;
+}
+
+.main-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+@media (max-width: 900px) {
+    .main-content {
+        grid-template-columns: 1fr;
+    }
+}
+
+.left-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.right-panel.is-sticky {
+    position: sticky;
+    top: 20px;
+    align-self: flex-start;
+}
+
+@media (max-width: 900px) {
+    .right-panel,
+    .right-panel.is-sticky {
+        position: static;
+        top: auto;
+    }
+}
+
+.card {
+    background: white;
+    border-radius: 16px;
+    padding: 25px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+
+.card h2 {
+    margin-bottom: 20px;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.step {
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.step:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.step-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.step-title {
+    font-weight: bold;
+    font-size: 1.1em;
+    color: #555;
+}
+
+.step-status {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: bold;
+}
+
+.status-pending {
+    background: #f0f0f0;
+    color: #999;
+}
+
+.status-processing {
+    background: #fff3cd;
+    color: #856404;
+    animation: pulse 1.5s infinite;
+}
+
+.status-completed {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-error {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    background: #667eea;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-size: 0.95em;
+}
+
+button:hover:not(:disabled) {
+    background: #5563c1;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+}
+
+button.secondary {
+    background: #6c757d;
+}
+
+button.secondary:hover:not(:disabled) {
+    background: #5a6268;
+}
+
+button.success {
+    background: #28a745;
+}
+
+button.success:hover:not(:disabled) {
+    background: #218838;
+}
+
+button.danger {
+    background: #dc3545;
+}
+
+button.danger:hover:not(:disabled) {
+    background: #c82333;
+}
+
+.preview-box {
+    margin-top: 15px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #f8f9fa;
+    display: none;
+}
+
+.preview-box.show {
+    display: block;
+}
+
+.preview-box img, .preview-box video {
+    width: 100%;
+    display: block;
+}
+
+.message {
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 15px;
+    display: none;
+}
+
+.message.show {
+    display: block;
+}
+
+.message.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.message.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.message.info {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+.button-group {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.full-pipeline {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
+.full-pipeline h2 {
+    color: white;
+}
+
+.full-pipeline button {
+    background: white;
+    color: #667eea;
+}
+
+.full-pipeline button:hover:not(:disabled) {
+    background: #f0f0f0;
+}
+
+.full-pipeline button.danger {
+    background: #dc3545;
+    color: white;
+}
+
+.full-pipeline button.danger:hover:not(:disabled) {
+    background: #c82333;
+}
+
+.input-group {
+    margin-bottom: 15px;
+}
+
+.input-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #555;
+}
+
+.input-group input, .input-group textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.95em;
+}
+
+.input-group textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.loader {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-left: 8px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    max-width: 350px;
+    display: none;
+    animation: slideIn 0.3s ease-out;
+    z-index: 1000;
+}
+
+.notification.show {
+    display: block;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.notification.success {
+    border-left: 4px solid #28a745;
+}
+
+.notification.error {
+    border-left: 4px solid #dc3545;
+}
+
+.notification.info {
+    border-left: 4px solid #17a2b8;
+}
+
+.notification-title {
+    font-weight: bold;
+    margin-bottom: 8px;
+    font-size: 1.1em;
+}
+
+.notification-message {
+    color: #666;
+}
+
+.progress-wrap {
+    margin-top: 12px;
+}
+
+.progress-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.9em;
+    color: white;
+    margin-bottom: 6px;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #22c55e, #16a34a);
+    background-size: 200% 100%;
+    transition: width 0.3s ease;
+    box-shadow: inset 0 0 6px rgba(255,255,255,0.3);
+}
+
+.progress-fill.success {
+    animation: progress-pulse 1s ease infinite;
+}
+
+@keyframes progress-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
+}
+
+.pipeline-results {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    font-size: 0.92em;
+}
+
+.pipeline-results p {
+    margin: 6px 0;
+}
+
+.toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: white;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 12px;
+    padding: 10px 12px;
+}
+
+.toggle-label {
+    font-weight: 600;
+    font-size: 0.95em;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 54px;
+    height: 30px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+    background: rgba(255,255,255,0.35);
+    border-radius: 999px;
+    transition: all 0.25s ease;
+}
+
+.slider:before {
+    content: "";
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    left: 3px;
+    top: 3px;
+    background: white;
+    border-radius: 50%;
+    transition: all 0.25s ease;
+}
+
+.switch input:checked + .slider {
+    background: linear-gradient(90deg, #22c55e, #16a34a);
+}
+
+.switch input:checked + .slider:before {
+    transform: translateX(24px);
+}
+
+.advanced-tools {
+    margin-top: 15px;
+    color: rgba(255,255,255,0.9);
+}
+
+.advanced-tools summary {
+    cursor: pointer;
+    user-select: none;
+    font-size: 0.9em;
+    opacity: 0.9;
+    margin-bottom: 10px;
+}
+
+.advanced-tools .danger {
+    margin-top: 10px;
+    width: 100%;
+}
+
+html {
+    scroll-behavior: smooth;
+}

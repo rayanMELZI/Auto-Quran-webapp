@@ -1,12 +1,16 @@
 import os
+import sys
 import json
+import signal
+import psutil
 from copy import deepcopy
 from pathlib import Path
 from threading import Lock, Thread, Event
 from typing import Dict, Optional
 from datetime import datetime
 
-from flask import Flask, render_template, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask_cors import CORS
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -17,9 +21,14 @@ from logic.scripts.create_final_video import create_final_video
 from logic.scripts.post_to_instagram import post_to_instagram
 
 app = Flask(__name__)
+CORS(app)
 
 # Global stop event for canceling operations
 stop_event = Event()
+
+# Track active pipeline thread
+active_pipeline_thread: Optional[Thread] = None
+active_pipeline_lock = Lock()
 
 # Cronjob scheduler
 scheduler = BackgroundScheduler()
@@ -171,9 +180,57 @@ def _finalize_progress(message='Done'):
         _recalculate_overall_locked()
 
 
+def _kill_child_processes():
+    """Kill all child processes spawned by this Flask process"""
+    killed_count = 0
+    try:
+        current_process = psutil.Process(os.getpid())
+        children = current_process.children(recursive=True)
+        
+        # First pass: Try SIGTERM (graceful)
+        for child in children:
+            try:
+                proc_name = child.name()
+                print(f"Terminating child process: {child.pid} ({proc_name})")
+                child.terminate()
+                killed_count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                print(f"Could not terminate {child.pid}: {e}")
+                pass
+        
+        # Wait a bit for graceful termination
+        gone, alive = psutil.wait_procs(children, timeout=2)
+        
+        # Second pass: Force kill any remaining processes
+        if alive:
+            print(f"{len(alive)} processes still alive, force killing...")
+            for child in alive:
+                try:
+                    print(f"Force killing: {child.pid} ({child.name()})")
+                    child.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    pass
+            
+            # Final wait
+            psutil.wait_procs(alive, timeout=1)
+        
+        print(f"Process cleanup complete. Terminated {killed_count} child processes")
+        return killed_count
+    except Exception as e:
+        print(f"Error killing child processes: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
+
+
+@app.route('/api/health', methods=['GET'])
+def api_health():
+    return jsonify({'status': 'healthy', 'service': 'auto-quran-backend'})
+
+
 @app.route('/')
 def welcome():
-    return render_template('main.html')
+    return jsonify({'message': 'Auto Quran backend is running'})
 
 
 @app.route('/api/download-image', methods=['POST'])
@@ -286,6 +343,7 @@ def api_extract_text():
 
 
 @app.route('/api/create-final', methods=['POST'])
+@app.route('/api/create-final-video', methods=['POST'])
 def api_create_final():
     """Create final video with image background and text overlay"""
     try:
@@ -346,6 +404,7 @@ def api_create_final():
 
 
 @app.route('/api/post-instagram', methods=['POST'])
+@app.route('/api/post-to-instagram', methods=['POST'])
 def api_post_instagram():
     """Post final video to Instagram"""
     try:
@@ -621,13 +680,50 @@ def _run_full_pipeline_bg(skip_text_overlay, auto_post, caption, channel_url, ke
         _finalize_progress('Pipeline completed successfully')
     except Exception as e:
         print(f"Background pipeline error: {e}")
+        import traceback
+        traceback.print_exc()
         _finalize_progress(f'Pipeline failed: {str(e)}')
+    finally:
+        # Clear the active thread reference when done
+        global active_pipeline_thread
+        print(f"Pipeline background task finalizing...")
+        with active_pipeline_lock:
+            if active_pipeline_thread is not None:
+                print(f"Clearing active pipeline thread reference")
+            active_pipeline_thread = None
+        stop_event.clear()  # Reset stop event for next run
+        print(f"Pipeline background task complete. Thread cleared.")
 
 
 @app.route('/api/run-full-pipeline', methods=['POST'])
 def api_run_full_pipeline():
     """Run the complete pipeline from start to finish (non-blocking)"""
+    global active_pipeline_thread
     try:
+        # Atomic check-and-set for progress_state (works across gunicorn workers)
+        # This prevents race conditions where multiple workers try to start pipelines
+        with progress_lock:
+            progress_is_active = progress_state.get('active', False)
+            if progress_is_active:
+                print(f"Pipeline start blocked - progress_active: True")
+                return jsonify({
+                    'success': False,
+                    'message': 'A pipeline is already running. Stop it first or wait for it to complete.',
+                }), 400
+            
+            # Reserve the pipeline slot immediately (atomic operation)
+            print("Reserving pipeline slot (setting active=True)")
+            progress_state['active'] = True
+            progress_state['overall_message'] = 'Initializing pipeline...'
+        
+        # Clean up any stale thread reference from this worker
+        with active_pipeline_lock:
+            if active_pipeline_thread is not None:
+                is_alive = active_pipeline_thread.is_alive()
+                if not is_alive:
+                    print("Cleaning up stale dead thread reference")
+                active_pipeline_thread = None
+        
         data = request.get_json() or {}
         skip_text_overlay = data.get('skip_text_overlay', False)
         auto_post = data.get('auto_post', False)
@@ -644,13 +740,28 @@ def api_run_full_pipeline():
             args=(skip_text_overlay, auto_post, caption, channel_url, keyword, video_url, False),
             daemon=True
         )
+        
+        # Register the thread globally
+        with active_pipeline_lock:
+            active_pipeline_thread = bg_thread
+        
         bg_thread.start()
+        print(f"Pipeline thread started: {bg_thread.name} (daemon={bg_thread.daemon})")
         
         return jsonify({
             'success': True,
             'message': 'Pipeline started. Monitor progress via /api/progress endpoint.',
         })
     except Exception as e:
+        print(f"Error starting pipeline: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Release the pipeline reservation on error
+        with progress_lock:
+            progress_state['active'] = False
+            progress_state['overall_message'] = f'Failed to start: {str(e)}'
+        
         return jsonify({
             'success': False,
             'message': f'Error: {str(e)}'
@@ -663,6 +774,36 @@ def api_progress():
     with progress_lock:
         snapshot = deepcopy(progress_state)
     return jsonify(snapshot)
+
+
+@app.route('/api/pipeline/status', methods=['GET'])
+def api_pipeline_status():
+    """Get detailed pipeline execution status including thread state"""
+    global active_pipeline_thread
+    try:
+        with active_pipeline_lock:
+            thread_exists = active_pipeline_thread is not None
+            thread_alive = active_pipeline_thread.is_alive() if thread_exists else False
+            thread_name = active_pipeline_thread.name if thread_exists else None
+        
+        with progress_lock:
+            is_active = progress_state.get('active', False)
+            current_step = progress_state.get('current_step')
+        
+        return jsonify({
+            'success': True,
+            'pipeline_running': thread_alive,
+            'thread_exists': thread_exists,
+            'thread_alive': thread_alive,
+            'thread_name': thread_name,
+            'progress_active': is_active,
+            'current_step': current_step,
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }), 500
 
 
 @app.route('/api/preview/<media_type>')
@@ -700,6 +841,11 @@ def api_state():
     })
 
 
+@app.route('/api/pipeline/state', methods=['GET'])
+def api_pipeline_state_alias():
+    return jsonify(dict(pipeline_state))
+
+
 @app.route('/api/reset', methods=['POST'])
 def api_reset():
     """Reset pipeline state"""
@@ -729,11 +875,90 @@ def api_reset_downloaded_videos():
 @app.route('/api/stop-all', methods=['POST'])
 def api_stop_all():
     """Stop all running processes"""
+    global active_pipeline_thread
     try:
+        print("\n=== STOP ALL PROCESSES CALLED ===")
+        
+        # Check if pipeline is active via progress state (works across workers)
+        with progress_lock:
+            was_active = progress_state.get('active', False)
+        print(f"Pipeline was active: {was_active}")
+        
+        # Set the stop event flag first (signals pipeline thread to stop gracefully)
         stop_event.set()
-        return jsonify({'success': True, 'message': 'Stop signal sent to all running processes'})
+        print("Stop event flag set")
+        
+        # Aggressive multi-pass kill loop until all processes are dead
+        import time
+        total_killed = 0
+        max_passes = 5  # Maximum number of kill passes
+        pass_num = 0  # Initialize for tracking
+        
+        for pass_num in range(1, max_passes + 1):
+            print(f"Kill pass {pass_num}: checking for child processes...")
+            killed_count = _kill_child_processes()
+            
+            if killed_count > 0:
+                total_killed += killed_count
+                print(f"Pass {pass_num}: Killed {killed_count} processes (total: {total_killed})")
+                
+                # Wait before next pass to catch respawning processes
+                if pass_num < max_passes:
+                    wait_time = 2 if pass_num == 1 else 1  # Longer wait after first pass
+                    print(f"Waiting {wait_time} seconds before next pass...")
+                    time.sleep(wait_time)
+            else:
+                print(f"Pass {pass_num}: No processes found")
+                # If we found nothing, do one more quick check after a short delay
+                if pass_num == 1:
+                    print("First pass found nothing, waiting 1s for delayed spawns...")
+                    time.sleep(1)
+                    continue
+                else:
+                    # No processes in 2 consecutive passes, we're done
+                    print("No processes in consecutive passes, cleanup complete")
+                    break
+        
+        if total_killed > 0:
+            print(f"Total processes terminated: {total_killed} across {pass_num} passes")
+        
+        # Clean up any thread reference in this worker (not reliable cross-worker, but good hygiene)
+        with active_pipeline_lock:
+            if active_pipeline_thread is not None:
+                print(f"Clearing thread reference in this worker")
+            active_pipeline_thread = None
+        
+        # Reset progress state (shared across all workers - this is reliable)
+        with progress_lock:
+            progress_state.clear()
+            progress_state.update(_new_progress_state())
+            progress_state['overall_message'] = 'Stopped by user'
+        print("Progress state reset (shared across all workers)")
+        
+        # Clear stop event for next run
+        stop_event.clear()
+        print("Stop event cleared for next run")
+        print("=== STOP COMPLETE ===\n")
+        
+        if total_killed == 0:
+            message = 'Stop signal sent. No active subprocesses found.'
+        else:
+            message = f'All processes stopped. Terminated {total_killed} subprocess(es) in one operation.'
+        
+        if was_active:
+            message += ' Pipeline was running.'
+        
+        return jsonify({'success': True, 'message': message, 'killed_count': total_killed})
     except Exception as e:
+        print(f"Error in stop_all: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+
+@app.route('/api/pipeline/stop', methods=['POST'])
+def api_pipeline_stop_alias():
+    return api_stop_all()
 
 
 @app.route('/api/settings', methods=['GET', 'POST'])
@@ -789,6 +1014,16 @@ def api_settings_reset_default():
         return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
 
 
+@app.route('/api/settings/reset', methods=['POST'])
+def api_settings_reset_all_defaults():
+    """Reset all settings to predefined defaults."""
+    defaults = deepcopy(DEFAULT_SETTINGS)
+    if save_settings(defaults):
+        configure_cronjob()
+        return jsonify({'success': True, 'settings': defaults})
+    return jsonify({'success': False, 'message': 'Failed to save settings'}), 500
+
+
 @app.route('/api/upload-image', methods=['POST'])
 def api_upload_image():
     """Upload a custom image"""
@@ -838,6 +1073,16 @@ def api_preview_custom():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/preview/<path:filename>', methods=['GET'])
+def api_preview_by_filename(filename):
+    """Serve preview files by filename from assets/output directories."""
+    if Path('assets', filename).exists():
+        return send_from_directory('assets', filename)
+    if Path('output', filename).exists():
+        return send_from_directory('output', filename)
+    return jsonify({'error': 'File not found'}), 404
+
+
 @app.route('/api/cronjob/status', methods=['GET'])
 def api_cronjob_status():
     """Get cronjob status"""
@@ -879,9 +1124,39 @@ def api_cronjob_configure():
         return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
 
 
+@app.route('/api/cronjob', methods=['GET'])
+def api_cronjob_get_alias():
+    settings = load_settings()
+    jobs = scheduler.get_jobs()
+    return jsonify({
+        'enabled': settings.get('cronjob_enabled', False),
+        'time': settings.get('cronjob_time', '09:00'),
+        'next_run': str(jobs[0].next_run_time) if jobs else None
+    })
+
+
+@app.route('/api/cronjob', methods=['POST'])
+def api_cronjob_post_alias():
+    try:
+        data = request.get_json() or {}
+        settings = load_settings()
+        settings['cronjob_enabled'] = bool(data.get('enabled', settings.get('cronjob_enabled', False)))
+        settings['cronjob_interval_hours'] = int(data.get('interval_hours', data.get('interval', settings.get('cronjob_interval_hours', 24))))
+        settings['cronjob_time'] = data.get('time', settings.get('cronjob_time', '09:00'))
+
+        if not save_settings(settings):
+            return jsonify({'success': False, 'message': 'Failed to save cronjob settings'}), 500
+
+        configure_cronjob()
+        return jsonify({'success': True, 'settings': settings})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+
 # Initialize cronjob on startup
 configure_cronjob()
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)

@@ -1,0 +1,59 @@
+services:
+  # Backend API service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: autoquran-backend
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=5000
+      - FLASK_ENV=production
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount logic directory for video processing scripts
+      - ./logic:/app/logic:ro
+      # Persistent storage for assets and output
+      - ./data/assets:/app/assets
+      - ./data/output:/app/output
+      # Session data
+      - ./data/instagram_session.json:/app/instagram_session.json
+    restart: unless-stopped
+    networks:
+      - autoquran-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend Nginx service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: autoquran-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - autoquran-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  autoquran-network:
+    driver: bridge
+
+volumes:
+  assets:
+  output:

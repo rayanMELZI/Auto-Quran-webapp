@@ -1583,10 +1583,95 @@ async function resetDefaultCaption() {
     }
 }
 
-// Initialize on page load
-updatePipelineStatus();
-applySettings();
-updateRightPanelStickyMode();
+// Initialize page on load and check for active pipeline
+async function initializePage() {
+    updatePipelineStatus();
+    applySettings();
+    updateRightPanelStickyMode();
+    
+    // Check if there's an active pipeline running and sync UI
+    try {
+        const [progressRes, statusRes] = await Promise.all([
+            fetch('/api/progress'),
+            fetch('/api/pipeline/status')
+        ]);
+        
+        const progress = await progressRes.json();
+        const status = await statusRes.json();
+        
+        // If pipeline is active or thread is running, restore the UI state
+        if (progress.active || (status.success && status.pipeline_running)) {
+            console.log('Active pipeline detected after reload:', progress);
+            
+            // Show notification that pipeline is running
+            showNotification('Pipeline Active', 'Resuming progress display...', 'info');
+            
+            // If it's a full pipeline, restore the full pipeline view
+            if (progress.mode === 'full-pipeline') {
+                // Update overall progress bar
+                const overallBar = document.getElementById('overall-progress-bar');
+                const overallText = document.getElementById('overall-progress-text');
+                const overallMsg = document.getElementById('overall-message');
+                
+                if (overallBar) overallBar.style.width = progress.overall_percent + '%';
+                if (overallText) overallText.textContent = Math.round(progress.overall_percent) + '%';
+                if (overallMsg) overallMsg.textContent = progress.overall_message || 'Processing...';
+                
+                // Update step statuses
+                if (progress.steps) {
+                    for (const [stepName, stepData] of Object.entries(progress.steps)) {
+                        updateStatus(stepName, stepData.status, stepData.message);
+                        
+                        // Show preview if result available
+                        if (stepData.result && stepData.result.preview_url) {
+                            showPreview(stepName, stepData.result.preview_url);
+                        }
+                    }
+                }
+                
+                // Disable the run button
+                const runBtn = document.getElementById('btn-pipeline');
+                if (runBtn) {
+                    runBtn.disabled = true;
+                    runBtn.textContent = 'Pipeline Running...';
+                }
+                
+                // Start polling to keep UI updated
+                startProgressPolling('full-pipeline', (data) => {
+                    // Update overall progress
+                    if (overallBar) overallBar.style.width = data.overall_percent + '%';
+                    if (overallText) overallText.textContent = Math.round(data.overall_percent) + '%';
+                    if (overallMsg) overallMsg.textContent = data.overall_message || 'Processing...';
+                    
+                    // Update steps
+                    if (data.steps) {
+                        for (const [stepName, stepData] of Object.entries(data.steps)) {
+                            updateStatus(stepName, stepData.status, stepData.message);
+                            if (stepData.result && stepData.result.preview_url) {
+                                showPreview(stepName, stepData.result.preview_url);
+                            }
+                        }
+                    }
+                    
+                    // Handle completion
+                    if (!data.active) {
+                        if (runBtn) {
+                            runBtn.disabled = false;
+                            runBtn.textContent = 'Run Full Pipeline';
+                        }
+                        updatePipelineStatus();
+                        showNotification('Complete', data.overall_message || 'Pipeline finished', 'success');
+                    }
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Error checking pipeline status on load:', error);
+    }
+}
+
+// Call initialization
+initializePage();
 
 window.addEventListener('resize', updateRightPanelStickyMode);
 window.addEventListener('load', updateRightPanelStickyMode);

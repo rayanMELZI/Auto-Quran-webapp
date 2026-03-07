@@ -4,16 +4,30 @@ __pycache__/
 *$py.class
 *.so
 .Python
-venv/
-env/
-ENV/
+*.egg
 *.egg-info/
 dist/
 build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.whl
+pip-log.txt
+pip-delete-this-directory.txt
 
-# Environment variables
-.env
-!.env.example
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+virtualenv/
 
 # IDE
 .vscode/
@@ -21,16 +35,79 @@ build/
 *.swp
 *.swo
 *~
-
-# Generated files
-assets/
-output/
-instagram_session.json
-
-# OS
 .DS_Store
-Thumbs.db
-desktop.ini
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.env
 
 # Logs
 *.log
+logs/
+*.log.*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Media files (too large for git)
+*.mp4
+*.mp3
+*.avi
+*.mov
+*.webm
+*.mkv
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.ico
+*.svg
+
+# Output directories
+output/
+data/output/
+data/assets/
+
+# Session files
+instagram_session.json
+data/instagram_session.json
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Project specific
+assets/downloaded_videos.txt
+
+# Docker
+*.dockerignore
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# Old structure (deprecated)
+templates/
+start.bat
+start.sh

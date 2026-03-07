@@ -1,0 +1,84 @@
+# Production Docker Compose Configuration
+# This version is optimized for production deployments
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: autoquran-backend-prod
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=5000
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+    expose:
+      - "5000"
+    volumes:
+      - ./logic:/app/logic:ro
+      - production_assets:/app/assets
+      - production_output:/app/output
+      - production_session:/app/session
+    restart: always
+    networks:
+      - autoquran-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: autoquran-frontend-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+    restart: always
+    networks:
+      - autoquran-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+
+networks:
+  autoquran-network:
+    driver: bridge
+
+volumes:
+  production_assets:
+    driver: local
+  production_output:
+    driver: local
+  production_session:
+    driver: local
