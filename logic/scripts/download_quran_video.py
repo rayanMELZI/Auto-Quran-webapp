@@ -24,15 +24,21 @@ def _resolve_cookie_file_from_env() -> Optional[str]:
     if _RUNTIME_COOKIE_FILE:
         return _RUNTIME_COOKIE_FILE
 
-    cookie_text = os.getenv("YTDLP_COOKIES_TEXT", "")
-    cookie_b64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
-
-    if cookie_b64:
-        try:
-            cookie_text = base64.b64decode(cookie_b64).decode("utf-8")
-        except Exception as exc:
-            print(f"Invalid YTDLP_COOKIES_B64 value: {exc}")
-            cookie_text = ""
+    # Try to load cookie text from env vars
+    # Priority: YOUTUBE_COOKIES > YTDLP_COOKIES_TEXT > YTDLP_COOKIES_B64
+    cookie_text = os.getenv("YOUTUBE_COOKIES", "").strip()
+    
+    if not cookie_text:
+        cookie_text = os.getenv("YTDLP_COOKIES_TEXT", "")
+    
+    if not cookie_text:
+        cookie_b64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
+        if cookie_b64:
+            try:
+                cookie_text = base64.b64decode(cookie_b64).decode("utf-8")
+            except Exception as exc:
+                print(f"Invalid YTDLP_COOKIES_B64 value: {exc}")
+                cookie_text = ""
 
     if not cookie_text.strip():
         return None
@@ -59,8 +65,10 @@ def _get_common_ydl_opts() -> Dict[str, Any]:
     # Optional cookie support for auth-required YouTube videos.
     # Priority:
     # 1) YTDLP_COOKIES_FILE (path)
-    # 2) YTDLP_COOKIES_TEXT / YTDLP_COOKIES_B64 (inline content written to temp file)
-    # 3) YTDLP_COOKIES_FROM_BROWSER (local dev only)
+    # 2) YOUTUBE_COOKIES (Render env var with raw cookie content)
+    # 3) YTDLP_COOKIES_TEXT (raw cookie content)
+    # 4) YTDLP_COOKIES_B64 (base64 encoded content)
+    # 5) YTDLP_COOKIES_FROM_BROWSER (local dev only)
     cookie_file = _resolve_cookie_file_from_env()
     browser = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip().lower()
 
