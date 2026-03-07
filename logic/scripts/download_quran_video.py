@@ -1,4 +1,5 @@
 import argparse
+import os
 import random
 from pathlib import Path
 from typing import Any, Dict, Optional, Set, Tuple, cast
@@ -9,14 +10,66 @@ import yt_dlp
 
 def _get_common_ydl_opts() -> Dict[str, Any]:
     """Get common yt-dlp options to bypass bot detection."""
-    return {
+    opts: Dict[str, Any] = {
         "nocheckcertificate": True,
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
-        # Try to use browser cookies if available (helps with bot detection)
-        # Tries Chrome first, then Firefox, then Edge
-        "cookiesfrombrowser": ("chrome",),
     }
+
+    # Optional cookie support (disabled by default for cloud hosts like Render).
+    # Set YTDLP_COOKIES_FILE to a netscape cookie file path, or
+    # YTDLP_COOKIES_FROM_BROWSER to browser name (e.g. chrome, firefox, edge).
+    cookie_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
+    browser = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip().lower()
+
+    if cookie_file:
+        opts["cookiefile"] = cookie_file
+    elif browser:
+        opts["cookiesfrombrowser"] = (browser,)
+
+    return opts
+
+
+def _can_retry_without_cookies(exc: Exception, opts: Dict[str, Any]) -> bool:
+    message = str(exc).lower()
+    has_cookie_opts = "cookiesfrombrowser" in opts or "cookiefile" in opts
+    cookie_error_markers = [
+        "failed to load cookies",
+        "could not find chrome cookies database",
+        "could not find firefox cookies database",
+        "could not find edge cookies database",
+    ]
+    return has_cookie_opts and any(marker in message for marker in cookie_error_markers)
+
+
+def _extract_info_with_fallback(url: str, opts: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        with yt_dlp.YoutubeDL(cast(Any, opts)) as ydl:
+            return cast(Dict[str, Any], ydl.extract_info(url, download=False))
+    except Exception as exc:
+        if not _can_retry_without_cookies(exc, opts):
+            raise
+        retry_opts = dict(opts)
+        retry_opts.pop("cookiesfrombrowser", None)
+        retry_opts.pop("cookiefile", None)
+        print("Cookie loading failed. Retrying YouTube request without cookies.")
+        with yt_dlp.YoutubeDL(cast(Any, retry_opts)) as ydl:
+            return cast(Dict[str, Any], ydl.extract_info(url, download=False))
+
+
+def _download_with_fallback(url: str, opts: Dict[str, Any]) -> None:
+    try:
+        with yt_dlp.YoutubeDL(cast(Any, opts)) as ydl:
+            ydl.download([url])
+    except Exception as exc:
+        if not _can_retry_without_cookies(exc, opts):
+            raise
+        retry_opts = dict(opts)
+        retry_opts.pop("cookiesfrombrowser", None)
+        retry_opts.pop("cookiefile", None)
+        print("Cookie loading failed. Retrying download without cookies.")
+        with yt_dlp.YoutubeDL(cast(Any, retry_opts)) as ydl:
+            ydl.download([url])
 
 
 def _load_downloaded_ids(file_path: Path) -> Set[str]:
@@ -95,8 +148,7 @@ def download_quran_video(
                 "skip_download": True,
                 "ignoreerrors": True,
             }
-            with yt_dlp.YoutubeDL(cast(Any, video_info_opts)) as ydl:
-                selected = cast(Dict[str, Any], ydl.extract_info(video_url, download=False))
+            selected = _extract_info_with_fallback(video_url, video_info_opts)
         except Exception as exc:
             print(f"Failed to read YouTube video info: {exc}")
             return None, None, _build_meta(
@@ -111,8 +163,7 @@ def download_quran_video(
             )
     else:
         try:
-            with yt_dlp.YoutubeDL(cast(Any, info_opts)) as ydl:
-                channel_info = ydl.extract_info(channel_url, download=False)
+            channel_info = _extract_info_with_fallback(channel_url, info_opts)
         except Exception as exc:
             print(f"Failed to read YouTube channel info: {exc}")
             return None, None, _build_meta(
@@ -189,8 +240,7 @@ def download_quran_video(
             "quiet": True,
             "no_warnings": True,
         }
-        with yt_dlp.YoutubeDL(cast(Any, video_opts)) as ydl:
-            ydl.download([resolved_video_url])
+        _download_with_fallback(resolved_video_url, video_opts)
         
         # Download audio only
         audio_opts: Dict[str, Any] = {
@@ -200,8 +250,7 @@ def download_quran_video(
             "quiet": True,
             "no_warnings": True,
         }
-        with yt_dlp.YoutubeDL(cast(Any, audio_opts)) as ydl:
-            ydl.download([resolved_video_url])
+        _download_with_fallback(resolved_video_url, audio_opts)
         
         # Manually merge with FFmpeg
         import subprocess
