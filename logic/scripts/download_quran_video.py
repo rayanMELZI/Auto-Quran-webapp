@@ -284,20 +284,20 @@ def download_quran_video(
         temp_audio = output.parent / f"{output.stem}_audio.m4a"
 
         try:
-            # Download video only
+            # Download video only - more flexible format selector
             video_opts: Dict[str, Any] = {
                 **_get_common_ydl_opts(),
-                "format": "bestvideo[ext=mp4]/bestvideo",
+                "format": "bestvideo[ext=mp4]/bestvideo[ext=webm]/bestvideo",
                 "outtmpl": str(temp_video),
                 "quiet": True,
                 "no_warnings": True,
             }
             _download_with_fallback(resolved_video_url, video_opts)
 
-            # Download audio only
+            # Download audio only - more flexible format selector
             audio_opts: Dict[str, Any] = {
                 **_get_common_ydl_opts(),
-                "format": "bestaudio[ext=m4a]/bestaudio",
+                "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
                 "outtmpl": str(temp_audio),
                 "quiet": True,
                 "no_warnings": True,
