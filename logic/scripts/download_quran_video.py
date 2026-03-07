@@ -114,6 +114,18 @@ def _build_meta(
     }
 
 
+def _is_auth_challenge_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    markers = [
+        "sign in to confirm youre not a bot",
+        "sign in to confirm you're not a bot",
+        "use --cookies-from-browser or --cookies",
+        "this video is age-restricted",
+        "login required",
+    ]
+    return any(marker in message for marker in markers)
+
+
 def download_quran_video(
     channel_url: str = "https://www.youtube.com/@Am9li9/videos",
     output_path: str = "assets/quran_video.mp4",
@@ -138,6 +150,7 @@ def download_quran_video(
     }
 
     selected: Optional[Dict[str, Any]] = None
+    candidates: list[Dict[str, Any]] = []
     source_type = "video" if video_url else "channel"
 
     if video_url:
@@ -161,6 +174,7 @@ def download_quran_video(
                 source_type=source_type,
                 message="Could not resolve selected video details.",
             )
+        candidates = [selected]
     else:
         try:
             channel_info = _extract_info_with_fallback(channel_url, info_opts)
@@ -190,6 +204,7 @@ def download_quran_video(
             )
 
         selected = random.choice(new_entries)
+        candidates = random.sample(new_entries, len(new_entries))
 
     if selected is None:
         return None, None, _build_meta(
@@ -197,109 +212,131 @@ def download_quran_video(
             message="No video was selected for download.",
         )
 
-    selected_id = selected.get("id")
-    if not selected_id:
-        return None, None, _build_meta(
-            source_type=source_type,
-            message="Selected video has no valid ID.",
-        )
-
-    is_new = selected_id not in downloaded_ids
-    if not is_new:
-        return None, None, _build_meta(
-            video_id=selected_id,
-            source_type=source_type,
-            duplicate=True,
-            message="Selected video is already downloaded. Pick another video/channel.",
-        )
-
-    resolved_video_url = _normalize_video_url(selected)
-    if not resolved_video_url:
-        print("Could not resolve selected video URL.")
-        return None, None, _build_meta(
-            video_id=selected_id,
-            source_type=source_type,
-            message="Could not resolve selected video URL.",
-        )
-
-    if output.exists():
-        output.unlink()
-
     ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-    
-    # Download video and audio separately, then merge with full control
-    temp_video = output.parent / f"{output.stem}_video.mp4"
-    temp_audio = output.parent / f"{output.stem}_audio.m4a"
-    
-    try:
-        # Download video only
-        video_opts: Dict[str, Any] = {
-            **_get_common_ydl_opts(),
-            "format": "bestvideo[ext=mp4]/bestvideo",
-            "outtmpl": str(temp_video),
-            "quiet": True,
-            "no_warnings": True,
-        }
-        _download_with_fallback(resolved_video_url, video_opts)
-        
-        # Download audio only
-        audio_opts: Dict[str, Any] = {
-            **_get_common_ydl_opts(),
-            "format": "bestaudio[ext=m4a]/bestaudio",
-            "outtmpl": str(temp_audio),
-            "quiet": True,
-            "no_warnings": True,
-        }
-        _download_with_fallback(resolved_video_url, audio_opts)
-        
-        # Manually merge with FFmpeg
-        import subprocess
-        merge_cmd = [
-            ffmpeg_path,
-            "-i", str(temp_video),
-            "-i", str(temp_audio),
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-strict", "experimental",
-            str(output),
-            "-y"
-        ]
-        
-        result = subprocess.run(merge_cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"FFmpeg merge error: {result.stderr}")
-            raise Exception("Failed to merge video and audio")
-        
-        # Clean up temp files
-        if temp_video.exists():
-            temp_video.unlink()
-        if temp_audio.exists():
-            temp_audio.unlink()
-            
-    except Exception as exc:
-        # Clean up temp files on error
-        if temp_video.exists():
-            temp_video.unlink()
-        if temp_audio.exists():
-            temp_audio.unlink()
-        print(f"Error downloading selected video: {exc}")
+
+    for candidate in candidates:
+        selected_id = candidate.get("id")
+        if not selected_id:
+            continue
+
+        if selected_id in downloaded_ids:
+            continue
+
+        resolved_video_url = _normalize_video_url(candidate)
+        if not resolved_video_url:
+            continue
+
+        if output.exists():
+            output.unlink()
+
+        # Download video and audio separately, then merge with full control
+        temp_video = output.parent / f"{output.stem}_video.mp4"
+        temp_audio = output.parent / f"{output.stem}_audio.m4a"
+
+        try:
+            # Download video only
+            video_opts: Dict[str, Any] = {
+                **_get_common_ydl_opts(),
+                "format": "bestvideo[ext=mp4]/bestvideo",
+                "outtmpl": str(temp_video),
+                "quiet": True,
+                "no_warnings": True,
+            }
+            _download_with_fallback(resolved_video_url, video_opts)
+
+            # Download audio only
+            audio_opts: Dict[str, Any] = {
+                **_get_common_ydl_opts(),
+                "format": "bestaudio[ext=m4a]/bestaudio",
+                "outtmpl": str(temp_audio),
+                "quiet": True,
+                "no_warnings": True,
+            }
+            _download_with_fallback(resolved_video_url, audio_opts)
+
+            # Manually merge with FFmpeg
+            import subprocess
+
+            merge_cmd = [
+                ffmpeg_path,
+                "-i",
+                str(temp_video),
+                "-i",
+                str(temp_audio),
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-strict",
+                "experimental",
+                str(output),
+                "-y",
+            ]
+
+            result = subprocess.run(merge_cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"FFmpeg merge error: {result.stderr}")
+                raise Exception("Failed to merge video and audio")
+
+            # Clean up temp files
+            if temp_video.exists():
+                temp_video.unlink()
+            if temp_audio.exists():
+                temp_audio.unlink()
+
+            _append_downloaded_id(downloaded_file, selected_id)
+            title = candidate.get("title")
+            print(f"Downloaded: {title} -> {output}")
+            return str(output), title, _build_meta(
+                video_id=selected_id,
+                source_type=source_type,
+                duplicate=False,
+                message="Video downloaded successfully.",
+            )
+
+        except Exception as exc:
+            # Clean up temp files on error
+            if temp_video.exists():
+                temp_video.unlink()
+            if temp_audio.exists():
+                temp_audio.unlink()
+
+            if not video_url and _is_auth_challenge_error(exc):
+                # Channel mode: skip blocked videos and try the next candidate.
+                print(f"Skipping blocked video {selected_id}: {exc}")
+                continue
+
+            print(f"Error downloading selected video: {exc}")
+            if video_url and _is_auth_challenge_error(exc):
+                return None, None, _build_meta(
+                    video_id=selected_id,
+                    source_type=source_type,
+                    message=(
+                        "This video requires YouTube authentication. Set YTDLP_COOKIES_FILE "
+                        "to an exported cookies.txt path (recommended on Render), or use a "
+                        "different public video URL."
+                    ),
+                )
+            return None, None, _build_meta(
+                video_id=selected_id,
+                source_type=source_type,
+                message=f"Error downloading selected video: {exc}",
+            )
+
+    if video_url:
         return None, None, _build_meta(
-            video_id=selected_id,
             source_type=source_type,
-            message=f"Error downloading selected video: {exc}",
+            message="Selected video could not be downloaded.",
         )
 
-    if is_new:
-        _append_downloaded_id(downloaded_file, selected_id)
-
-    title = selected.get("title")
-    print(f"Downloaded: {title} -> {output}")
-    return str(output), title, _build_meta(
-        video_id=selected_id,
+    return None, None, _build_meta(
         source_type=source_type,
-        duplicate=False,
-        message="Video downloaded successfully.",
+        message=(
+            "No downloadable videos found from the channel right now. "
+            "YouTube is requiring authentication for available candidates."
+        ),
     )
 
 
