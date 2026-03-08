@@ -15,10 +15,16 @@ import yt_dlp
 
 
 # Invidious public instances (try multiple for redundancy)
+# These are regularly updated and more reliable
 INVIDIOUS_INSTANCES = [
+    "https://invidious.snopyta.org",
+    "https://iv.datura.network",
+    "https://inv.altomani.com",
+    "https://invidious.flokinet.to",
+    "https://inv.nadeko.net",
+    "https://invidious.projectsegfau.lt",
     "https://invidious.io",
     "https://yewtu.be",
-    "https://inv.riverside.rocks",
 ]
 
 # Current instance
@@ -89,7 +95,7 @@ def _search_channel_videos(channel_handle: str, keyword: str, timeout_seconds: i
     error: Optional[Exception] = None
     
     # Try all instances for search
-    instances_to_try = INVIDIOUS_INSTANCES + ["https://inv.nadeko.net", "https://invidious.projectsegfau.lt"]
+    instances_to_try = INVIDIOUS_INSTANCES
 
     def search_worker():
         nonlocal result, error
@@ -114,29 +120,89 @@ def _search_channel_videos(channel_handle: str, keyword: str, timeout_seconds: i
                 error = e
                 continue
         
-        # If all instances failed, keep the last error
-        if not result:
-            error = Exception("All Invidious instances failed")
+        # If all Invidious instances failed, try direct YouTube search with yt-dlp
+        print("[FALLBACK] Attempting direct YouTube search with yt-dlp...")
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'default_search': 'ytsearch',
+                'socket_timeout': 15,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(f"ytsearch20:{keyword}", download=False)
+                if info and 'entries' in info:
+                    result = [
+                        {
+                            'videoId': entry.get('id'),
+                            'title': entry.get('title', 'Unknown'),
+                            'author': entry.get('uploader', 'Unknown'),
+                        }
+                      from Invidious first, fallback to direct YouTube."""
+    error: Optional[Exception] = None
+    success: bool = False
 
-    thread = threading.Thread(target=search_worker, daemon=True)
+    def download_worker():
+        nonlocal error, success
+        
+        # Try Invidious first
+        for instance in INVIDIOUS_INSTANCES:
+            try:
+                video_url = f"{instance}/watch?v={video_id}"
+                print(f"[DOWNLOAD] Trying Invidious instance: {instance}")
+                
+                opts = {
+                    "format": "best",
+                    "outtmpl": str(output_path),
+                    "quiet": False,
+                    "no_warnings": False,
+                    "socket_timeout": 15,
+                    "noplaylist": True,
+                    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                }
+                
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.download([video_url])
+                    success = True
+                    print(f"[DOWNLOAD] Success via {instance}")
+                    return
+            except Exception as e:
+                print(f"[DOWNLOAD] {instance} failed: {str(e)[:50]}")
+                error = e
+        
+        # Fallback to direct YouTube
+        try:
+            print(f"[DOWNLOAD] Falling back to direct YouTube download")
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            
+            opts = {
+                "format": "best",
+                "outtmpl": str(output_path),
+                "quiet": False,
+                "no_warnings": False,
+                "socket_timeout": 15,
+                "noplaylist": True,
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            }
+            
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([video_url])
+                success = True
+                print(f"[DOWNLOAD] Success via YouTube fallback")
+                error = None
+                return
+        except Exception as e:
+            print(f"[DOWNLOAD] YouTube fallback failed: {str(e)[:50]}")
+            error = e
+
+    thread = threading.Thread(target=download_worker, daemon=True)
     thread.start()
     thread.join(timeout=timeout_seconds)
 
     if thread.is_alive():
-        raise TimeoutError(f"Invidious search timed out after {timeout_seconds}s")
+        raise TimeoutError(f"Video download timed out after {timeout_seconds}s")
     
-    if error and not result:
-        raise error
-    
-    return result
-
-
-def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: int = 60) -> None:
-    """Download video directly from Invidious using yt-dlp."""
-    error: Optional[Exception] = None
-
-    def download_worker():
-        nonlocal error
+    if error and not successocal error
         try:
             instance = _get_working_instance()
             video_url = f"{instance}/watch?v={video_id}"
