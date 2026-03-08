@@ -119,6 +119,7 @@ def _search_youtube_fallback(keyword: str, timeout_seconds: int = 20) -> list:
                 'default_search': 'ytsearch',
                 'socket_timeout': 20,
                 'ignoreerrors': True,
+                'ignoreconfig': True,
                 'extract_flat': True,
                 'skip_download': True,
                 'extractor_args': {
@@ -225,6 +226,7 @@ def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: in
                 "no_warnings": False,
                 "socket_timeout": 15,
                 "noplaylist": True,
+                "ignoreconfig": True,
                 "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "extractor_args": {
                     "youtube": {
@@ -269,6 +271,7 @@ def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: in
                 "no_warnings": False,
                 "socket_timeout": 15,
                 "noplaylist": True,
+                "ignoreconfig": True,
                 "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "extractor_args": {
                     "youtube": {
