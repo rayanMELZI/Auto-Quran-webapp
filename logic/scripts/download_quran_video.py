@@ -352,27 +352,68 @@ def download_quran_video(
             output.unlink()
 
         try:
-            # Primary strategy: let yt-dlp auto-select best available format
-            primary_opts: Dict[str, Any] = {
+            # Strategy: List available formats and explicitly download the first available one
+            print(f"[DEBUG] Listing formats for video: {selected_id}")
+            list_opts: Dict[str, Any] = {
                 **_get_common_ydl_opts(),
-                "outtmpl": str(output),
-                "quiet": False,  # Enable output to see what's happening
-                "no_warnings": False,
+                "listformats": True,
+                "quiet": False,
                 "noplaylist": True,
             }
-            print(f"[DEBUG] Attempting download for video: {selected_id}")
-            _download_with_fallback(resolved_video_url, primary_opts)
+            
+            # First, list formats to see what's available
+            try:
+                with yt_dlp.YoutubeDL(cast(Any, list_opts)) as ydl:
+                    video_info = ydl.extract_info(resolved_video_url, download=False)
+                    if video_info and video_info.get("formats"):
+                        formats = video_info["formats"]
+                        print(f"[DEBUG] Found {len(formats)} formats for {selected_id}")
+                        # Get the best format with both video and audio, or just best overall
+                        best_format = None
+                        for fmt in reversed(formats):  # Usually later formats are better
+                            if fmt.get("vcodec") != "none" and fmt.get("acodec") != "none":
+                                best_format = fmt.get("format_id")
+                                break
+                        if not best_format and formats:
+                            best_format = formats[-1].get("format_id")  # Just use last format
+                        
+                        if best_format:
+                            print(f"[DEBUG] Selected format ID: {best_format}")
+                            download_opts: Dict[str, Any] = {
+                                **_get_common_ydl_opts(),
+                                "format": best_format,
+                                "outtmpl": str(output),
+                                "quiet": False,
+                                "no_warnings": False,
+                                "noplaylist": True,
+                            }
+                            _download_with_fallback(resolved_video_url, download_opts)
+                        else:
+                            raise Exception("No format ID could be determined")
+                    else:
+                        raise Exception("No formats found in video info")
+            except Exception as list_exc:
+                # If listing fails, try the absolute simplest download
+                print(f"[DEBUG] Format listing failed: {list_exc}, trying direct download")
+                primary_opts: Dict[str, Any] = {
+                    **_get_common_ydl_opts(),
+                    "outtmpl": str(output),
+                    "quiet": False,
+                    "no_warnings": False,
+                    "noplaylist": True,
+                }
+                _download_with_fallback(resolved_video_url, primary_opts)
 
         except Exception as primary_exc:
             try:
-                # Secondary strategy: explicitly request any format with -f best
+                # Final fallback: Try with worstaudio+worstvideo (guaranteed to exist if any format exists)
                 if not _is_format_error(primary_exc):
                     raise
 
-                print(f"[DEBUG] Primary failed, trying explicit best format for: {selected_id}")
+                print(f"[DEBUG] All strategies failed, trying worst quality for: {selected_id}")
                 fallback_opts: Dict[str, Any] = {
                     **_get_common_ydl_opts(),
-                    "format": "b/bv*+ba/b/best",  # Most permissive chain
+                    "format": "worst",  # Absolute fallback
                     "outtmpl": str(output),
                     "quiet": False,
                     "no_warnings": False,
