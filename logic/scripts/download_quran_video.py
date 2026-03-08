@@ -1,6 +1,6 @@
 """
-Download Quran videos using Invidious (free YouTube alternative).
-Works perfectly on Render without datacenter IP blocking!
+Download Quran videos using Invidious (free YouTube alternative) with YouTube fallback.
+Works on Render with fallback to direct YouTube if Invidious is unavailable.
 """
 
 import os
@@ -15,11 +15,13 @@ import yt_dlp
 
 
 # Invidious public instances (try multiple for redundancy)
+# Prioritize snopyta.org which is most reliable
 INVIDIOUS_INSTANCES = [
-    "https://invidious.snopyta.org",  # Tested working Mar 8 2026
+    "https://invidious.snopyta.org",
     "https://inv.nadeko.net",
     "https://invidious.io",
     "https://yewtu.be",
+    "https://invidious.projectsegfau.lt",
 ]
 
 # Current instance
@@ -84,13 +86,59 @@ def _get_channel_videos(channel_identifier: str, timeout_seconds: int = 20) -> D
     return result
 
 
+def _search_youtube_fallback(keyword: str, timeout_seconds: int = 20) -> list:
+    """Fallback search using yt-dlp directly on YouTube."""
+    result: list = []
+    error: Optional[Exception] = None
+    
+    def youtube_worker():
+        nonlocal result, error
+        try:
+            print("[YOUTUBE_FALLBACK] Attempting YouTube search...")
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'default_search': 'ytsearch',
+                'socket_timeout': 15,
+                'ignoreerrors': True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(f"ytsearch20:{keyword}", download=False)
+                if info and 'entries' in info:
+                    result = [
+                        {
+                            'videoId': entry.get('id'),
+                            'title': entry.get('title', 'Unknown'),
+                            'author': entry.get('uploader', 'Unknown'),
+                        }
+                        for entry in info['entries']
+                        if entry and entry.get('id')
+                    ][:20]
+                    if result:
+                        print(f"[YOUTUBE_FALLBACK] Found {len(result)} videos on YouTube")
+                        return
+        except Exception as e:
+            print(f"[YOUTUBE_FALLBACK] Failed: {str(e)[:50]}")
+            error = e
+    
+    thread = threading.Thread(target=youtube_worker, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout_seconds)
+    
+    if thread.is_alive():
+        print("[YOUTUBE_FALLBACK] Timeout")
+        return []
+    
+    return result
+
+
 def _search_channel_videos(channel_handle: str, keyword: str, timeout_seconds: int = 20) -> list:
-    """Search for videos in channel by keyword using Invidious."""
+    """Search for videos in channel by keyword using Invidious, with YouTube fallback."""
     result: list = []
     error: Optional[Exception] = None
     
     # Try all instances for search
-    instances_to_try = INVIDIOUS_INSTANCES + ["https://inv.nadeko.net", "https://invidious.projectsegfau.lt"]
+    instances_to_try = INVIDIOUS_INSTANCES + ["https://invidious.projectsegfau.lt"]
 
     def search_worker():
         nonlocal result, error
@@ -114,30 +162,34 @@ def _search_channel_videos(channel_handle: str, keyword: str, timeout_seconds: i
                 print(f"[INVIDIOUS] {instance} failed: {str(e)[:50]}")
                 error = e
                 continue
-        
-        # If all instances failed, keep the last error
-        if not result:
-            error = Exception("All Invidious instances failed")
 
     thread = threading.Thread(target=search_worker, daemon=True)
     thread.start()
-    thread.join(timeout=timeout_seconds)
+    thread.join(timeout=timeout_seconds - 5)  # Leave time for fallback
 
-    if thread.is_alive():
-        raise TimeoutError(f"Invidious search timed out after {timeout_seconds}s")
+    # If Invidious succeeded, return
+    if result:
+        return result
     
-    if error and not result:
+    # Try YouTube fallback if all Invidious instances failed
+    print("[SEARCH] All Invidious instances failed, trying YouTube fallback...")
+    youtube_result = _search_youtube_fallback(keyword, timeout_seconds=5)
+    if youtube_result:
+        return youtube_result
+    
+    # Both failed
+    if error:
         raise error
-    
-    return result
+    raise Exception("All Invidious instances and YouTube fallback failed")
 
 
 def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: int = 60) -> None:
-    """Download video directly from Invidious using yt-dlp."""
-    error: Optional[Exception] = None
-
-    def download_worker():
-        nonlocal error
+    """Download video from Invidious first, fallback to direct YouTube."""
+    invidious_error: Optional[Exception] = None
+    
+    # Try Invidious first
+    def invidious_download_worker():
+        nonlocal invidious_error
         try:
             instance = _get_working_instance()
             video_url = f"{instance}/watch?v={video_id}"
@@ -154,18 +206,63 @@ def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: in
             
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([video_url])
+                print(f"[INVIDIOUS] Successfully downloaded {video_id}")
+                return  # Success, exit
         except Exception as exc:
-            error = exc
+            invidious_error = exc
 
-    thread = threading.Thread(target=download_worker, daemon=True)
+    thread = threading.Thread(target=invidious_download_worker, daemon=True)
     thread.start()
-    thread.join(timeout=timeout_seconds)
+    thread.join(timeout=timeout_seconds // 2)  # Use half the timeout for Invidious
 
-    if thread.is_alive():
-        raise TimeoutError(f"Video download timed out after {timeout_seconds}s")
+    # If Invidious succeeded (file exists), we're done
+    if output_path.exists() and output_path.stat().st_size > 0:
+        return
     
-    if error:
-        raise error
+    # If thread is still running, let it finish in background but proceed to fallback
+    if thread.is_alive():
+        print("[DOWNLOAD] Invidious taking too long, trying YouTube fallback...")
+    
+    # Try YouTube direct
+    print(f"[YOUTUBE] Trying direct YouTube download for {video_id}...")
+    youtube_error: Optional[Exception] = None
+    
+    def youtube_download_worker():
+        nonlocal youtube_error
+        try:
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            
+            opts = {
+                "format": "best",
+                "outtmpl": str(output_path),
+                "quiet": False,
+                "no_warnings": False,
+                "socket_timeout": 15,
+                "noplaylist": True,
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            }
+            
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([video_url])
+                print(f"[YOUTUBE] Successfully downloaded {video_id} from YouTube")
+        except Exception as exc:
+            youtube_error = exc
+    
+    youtube_thread = threading.Thread(target=youtube_download_worker, daemon=True)
+    youtube_thread.start()
+    youtube_thread.join(timeout=timeout_seconds // 2)
+    
+    # Check if either method succeeded
+    if output_path.exists() and output_path.stat().st_size > 0:
+        return
+    
+    # Both failed
+    if youtube_error:
+        raise youtube_error
+    if invidious_error:
+        raise invidious_error
+    
+    raise TimeoutError(f"Video download timed out after {timeout_seconds}s")
 
 
 def _load_downloaded_ids(file_path: Path) -> Set[str]:
@@ -207,8 +304,8 @@ def download_quran_video(
     title_keyword: str = "سورة",
     video_url: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str], Dict[str, object]]:
-    """Download Quran video using Invidious (free YouTube alternative)."""
-    print("[INVIDIOUS] Starting video download...")
+    """Download Quran video using Invidious (free YouTube alternative) with fallback."""
+    print("[DOWNLOAD] Starting video download...")
 
     output = Path(output_path).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -238,7 +335,7 @@ def download_quran_video(
                 )
             
             try:
-                print(f"[INVIDIOUS] Downloading video: {video_id}")
+                print(f"[DOWNLOAD] Downloading video: {video_id}")
                 _download_video_direct(video_id, output, timeout_seconds=60)
                 _append_downloaded_id(downloaded_file, video_id)
                 
@@ -255,7 +352,7 @@ def download_quran_video(
                 )
 
         # Channel mode: search for videos by keyword
-        print(f"[INVIDIOUS] Searching channel for keyword: {title_keyword}")
+        print(f"[DOWNLOAD] Searching channel for keyword: {title_keyword}")
         channel_handle = _extract_channel_id(channel_url)
         if not channel_handle:
             return None, None, _build_meta(
@@ -268,7 +365,7 @@ def download_quran_video(
         if not videos:
             return None, None, _build_meta(
                 source_type=source_type,
-                message=f"No videos found with keyword '{title_keyword}' in Invidious",
+                message=f"No videos found with keyword '{title_keyword}'",
             )
 
         # Filter out already downloaded videos
@@ -297,7 +394,7 @@ def download_quran_video(
                 output.unlink()
 
             try:
-                print(f"[INVIDIOUS] Downloading: {title} ({video_id})")
+                print(f"[DOWNLOAD] Downloading: {title} ({video_id})")
                 _download_video_direct(video_id, output, timeout_seconds=60)
                 _append_downloaded_id(downloaded_file, video_id)
                 
@@ -307,12 +404,12 @@ def download_quran_video(
                     message="Video downloaded successfully.",
                 )
             except Exception as exc:
-                print(f"[INVIDIOUS] Failed for {video_id}: {exc}, trying next...")
+                print(f"[DOWNLOAD] Failed for {video_id}: {exc}, trying next...")
                 continue
 
         return None, None, _build_meta(
             source_type=source_type,
-            message="Could not download any matching videos from Invidious",
+            message="Could not download any matching videos",
         )
 
     except TimeoutError as exc:
