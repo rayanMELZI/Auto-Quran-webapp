@@ -28,6 +28,24 @@ INVIDIOUS_INSTANCES = [
 _CURRENT_INSTANCE = INVIDIOUS_INSTANCES[0]
 
 
+def _apply_optional_youtube_cookies(opts: Dict[str, Any]) -> Dict[str, Any]:
+    """Attach cookiefile to yt-dlp options when YOUTUBE_COOKIES env var is set."""
+    cookies_text = os.getenv("YOUTUBE_COOKIES")
+    if not cookies_text:
+        return opts
+
+    cookie_path = Path("assets/youtube_cookies.txt").resolve()
+    cookie_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Support both real newlines and escaped \n sequences from env vars.
+    normalized = cookies_text.replace("\\r\\n", "\n").replace("\\n", "\n")
+    with open(cookie_path, "w", encoding="utf-8") as handle:
+        handle.write(normalized)
+
+    opts["cookiefile"] = str(cookie_path)
+    return opts
+
+
 def _get_working_instance() -> str:
     """Find a working Invidious instance."""
     global _CURRENT_INSTANCE
@@ -109,6 +127,7 @@ def _search_youtube_fallback(keyword: str, timeout_seconds: int = 20) -> list:
                     }
                 },
             }
+            ydl_opts = _apply_optional_youtube_cookies(ydl_opts)
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(f"ytsearch20:{keyword}", download=False)
                 if info and 'entries' in info:
@@ -216,6 +235,7 @@ def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: in
                 },
             }
             
+            opts = _apply_optional_youtube_cookies(opts)
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([video_url])
                 print(f"[INVIDIOUS] Successfully downloaded {video_id}")
@@ -259,6 +279,7 @@ def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: in
                 },
             }
             
+            opts = _apply_optional_youtube_cookies(opts)
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([video_url])
                 print(f"[YOUTUBE] Successfully downloaded {video_id} from YouTube")
