@@ -5,12 +5,44 @@ import random
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Set, Tuple, cast
+from urllib.parse import unquote
 
-import imageio_ffmpeg
 import yt_dlp
 
 
 _RUNTIME_COOKIE_FILE: Optional[str] = None
+
+
+def _is_netscape_cookie_text(cookie_text: str) -> bool:
+    stripped = cookie_text.strip()
+    if stripped.startswith("# Netscape HTTP Cookie File"):
+        return True
+
+    for line in stripped.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Netscape cookie lines have 7 tab-separated fields
+        if len(line.split("\t")) >= 7:
+            return True
+    return False
+
+
+def _cookie_header_to_netscape(cookie_header: str) -> str:
+    lines = ["# Netscape HTTP Cookie File", ""]
+    for part in cookie_header.split(";"):
+        item = part.strip()
+        if not item or "=" not in item:
+            continue
+        name, value = item.split("=", 1)
+        name = name.strip()
+        if not name:
+            continue
+        value = unquote(value.strip())
+        # Include both domains because YouTube auth relies on google/youtube cookies.
+        for domain in (".youtube.com", ".google.com"):
+            lines.append(f"{domain}\tTRUE\t/\tTRUE\t2147483647\t{name}\t{value}")
+    return "\n".join(lines) + "\n"
 
 
 def _resolve_cookie_file_from_env() -> Optional[str]:
@@ -42,6 +74,10 @@ def _resolve_cookie_file_from_env() -> Optional[str]:
 
     if not cookie_text.strip():
         return None
+
+    if not _is_netscape_cookie_text(cookie_text):
+        cookie_text = _cookie_header_to_netscape(cookie_text)
+        print("YOUTUBE_COOKIES was parsed as a cookie-header line and converted to Netscape format.")
 
     try:
         fd, temp_path = tempfile.mkstemp(prefix="yt_cookies_", suffix=".txt")
@@ -175,6 +211,7 @@ def _is_auth_challenge_error(exc: Exception) -> bool:
     ]
     return any(marker in message for marker in markers)
 
+
 def _is_format_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return "requested format is not available" in message or "no video formats found" in message
@@ -265,8 +302,6 @@ def download_quran_video(
             message="No video was selected for download.",
         )
 
-    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-
     for candidate in candidates:
         selected_id = candidate.get("id")
         if not selected_id:
@@ -282,132 +317,67 @@ def download_quran_video(
         if output.exists():
             output.unlink()
 
-        # Download video and audio separately, then merge with full control
-        temp_video = output.parent / f"{output.stem}_video.mp4"
-        temp_audio = output.parent / f"{output.stem}_audio.m4a"
-
-        download_success = False
-        
         try:
-            # Try downloading video and audio separately first
+            # Primary strategy: request best video+audio with permissive fallback.
+            primary_opts: Dict[str, Any] = {
+                **_get_common_ydl_opts(),
+                "format": "bv*+ba/b",
+                "outtmpl": str(output),
+                "merge_output_format": "mp4",
+                "quiet": True,
+                "no_warnings": True,
+                "noplaylist": True,
+            }
+            _download_with_fallback(resolved_video_url, primary_opts)
+
+        except Exception as primary_exc:
             try:
-                # Download video only - more flexible format selector
-                video_opts: Dict[str, Any] = {
-                    **_get_common_ydl_opts(),
-                    "format": "bestvideo[ext=mp4]/bestvideo[ext=webm]/bestvideo",
-                    "outtmpl": str(temp_video),
-                    "quiet": True,
-                    "no_warnings": True,
-                }
-                _download_with_fallback(resolved_video_url, video_opts)
-
-                # Download audio only - more flexible format selector
-                audio_opts: Dict[str, Any] = {
-                    **_get_common_ydl_opts(),
-                    "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
-                    "outtmpl": str(temp_audio),
-                    "quiet": True,
-                    "no_warnings": True,
-                }
-                _download_with_fallback(resolved_video_url, audio_opts)
-
-                # Manually merge with FFmpeg
-                import subprocess
-
-                merge_cmd = [
-                    ffmpeg_path,
-                    "-i",
-                    str(temp_video),
-                    "-i",
-                    str(temp_audio),
-                    "-c:v",
-                    "copy",
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "192k",
-                    "-strict",
-                    "experimental",
-                    str(output),
-                    "-y",
-                ]
-
-                result = subprocess.run(merge_cmd, capture_output=True, text=True)
-                if result.returncode != 0:
-                    print(f"FFmpeg merge error: {result.stderr}")
-                    raise Exception("Failed to merge video and audio")
-                
-                download_success = True
-
-            except Exception as format_exc:
-                # If separate download failed due to format issues, try simple combined download
-                if _is_format_error(format_exc):
-                    print(f"Separate format download failed, trying combined format: {format_exc}")
-                    
-                    # Clean up any partial files
-                    if temp_video.exists():
-                        temp_video.unlink()
-                    if temp_audio.exists():
-                        temp_audio.unlink()
-                    
-                    # Download best available combined format directly
-                    combined_opts: Dict[str, Any] = {
-                        **_get_common_ydl_opts(),
-                        "format": "best[ext=mp4]/bestvideo+bestaudio/best",
-                        "outtmpl": str(output),
-                        "merge_output_format": "mp4",
-                        "quiet": True,
-                        "no_warnings": True,
-                    }
-                    _download_with_fallback(resolved_video_url, combined_opts)
-                    download_success = True
-                else:
+                # Secondary strategy: accept any best format if primary selector fails.
+                if not _is_format_error(primary_exc):
                     raise
 
-            # Clean up temp files
-            if temp_video.exists():
-                temp_video.unlink()
-            if temp_audio.exists():
-                temp_audio.unlink()
-            
-            if download_success:
-                _append_downloaded_id(downloaded_file, selected_id)
-                title = candidate.get("title")
-                print(f"Downloaded: {title} -> {output}")
-                return str(output), title, _build_meta(
-                    video_id=selected_id,
-                    source_type=source_type,
-                    duplicate=False,
-                    message="Video downloaded successfully.",
-                )
+                fallback_opts: Dict[str, Any] = {
+                    **_get_common_ydl_opts(),
+                    "format": "best",
+                    "outtmpl": str(output),
+                    "merge_output_format": "mp4",
+                    "quiet": True,
+                    "no_warnings": True,
+                    "noplaylist": True,
+                }
+                _download_with_fallback(resolved_video_url, fallback_opts)
 
-        except Exception as exc:
-            # Clean up temp files on error
-            if temp_video.exists():
-                temp_video.unlink()
-            if temp_audio.exists():
-                temp_audio.unlink()
+            except Exception as exc:
+                if not video_url and _is_auth_challenge_error(exc):
+                    # Channel mode: skip blocked videos and try the next candidate.
+                    print(f"Skipping blocked video {selected_id}: {exc}")
+                    continue
 
-            if not video_url and _is_auth_challenge_error(exc):
-                # Channel mode: skip blocked videos and try the next candidate.
-                print(f"Skipping blocked video {selected_id}: {exc}")
-                continue
-
-            print(f"Error downloading selected video: {exc}")
-            if video_url and _is_auth_challenge_error(exc):
+                print(f"Error downloading selected video: {exc}")
+                if video_url and _is_auth_challenge_error(exc):
+                    return None, None, _build_meta(
+                        video_id=selected_id,
+                        source_type=source_type,
+                        message=(
+                            "This video requires YouTube authentication. Set YTDLP_COOKIES_FILE "
+                            "to an exported cookies.txt path (recommended on Render), or use a "
+                            "different public video URL."
+                        ),
+                    )
                 return None, None, _build_meta(
                     video_id=selected_id,
                     source_type=source_type,
-                    message=(
-                        "This video requires YouTube authentication. Set YTDLP_COOKIES_FILE "
-                        "to an exported cookies.txt path (recommended on Render), or use a "
-                        "different public video URL."
-                    ),
+                    message=f"Error downloading selected video: {exc}",
                 )
-            return None, None, _build_meta(
+
+        _append_downloaded_id(downloaded_file, selected_id)
+        title = candidate.get("title")
+        print(f"Downloaded: {title} -> {output}")
+        return str(output), title, _build_meta(
                 video_id=selected_id,
                 source_type=source_type,
-                message=f"Error downloading selected video: {exc}",
+            duplicate=False,
+            message="Video downloaded successfully.",
             )
 
     if video_url:
