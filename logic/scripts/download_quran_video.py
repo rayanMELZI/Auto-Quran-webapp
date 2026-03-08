@@ -352,31 +352,30 @@ def download_quran_video(
             output.unlink()
 
         try:
-            # Primary strategy: request best video+audio with permissive fallback.
+            # Primary strategy: let yt-dlp auto-select best available format
             primary_opts: Dict[str, Any] = {
                 **_get_common_ydl_opts(),
-                "format": "bv*+ba/b",
                 "outtmpl": str(output),
-                "merge_output_format": "mp4",
-                "quiet": True,
-                "no_warnings": True,
+                "quiet": False,  # Enable output to see what's happening
+                "no_warnings": False,
                 "noplaylist": True,
             }
+            print(f"[DEBUG] Attempting download for video: {selected_id}")
             _download_with_fallback(resolved_video_url, primary_opts)
 
         except Exception as primary_exc:
             try:
-                # Secondary strategy: accept any best format if primary selector fails.
+                # Secondary strategy: explicitly request any format with -f best
                 if not _is_format_error(primary_exc):
                     raise
 
+                print(f"[DEBUG] Primary failed, trying explicit best format for: {selected_id}")
                 fallback_opts: Dict[str, Any] = {
                     **_get_common_ydl_opts(),
-                    "format": "best",
+                    "format": "b/bv*+ba/b/best",  # Most permissive chain
                     "outtmpl": str(output),
-                    "merge_output_format": "mp4",
-                    "quiet": True,
-                    "no_warnings": True,
+                    "quiet": False,
+                    "no_warnings": False,
                     "noplaylist": True,
                 }
                 _download_with_fallback(resolved_video_url, fallback_opts)
