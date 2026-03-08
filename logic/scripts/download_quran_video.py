@@ -87,24 +87,36 @@ def _search_channel_videos(channel_handle: str, keyword: str, timeout_seconds: i
     """Search for videos in channel by keyword using Invidious."""
     result: list = []
     error: Optional[Exception] = None
+    
+    # Try all instances for search
+    instances_to_try = INVIDIOUS_INSTANCES + ["https://inv.nadeko.net", "https://invidious.projectsegfau.lt"]
 
     def search_worker():
         nonlocal result, error
-        try:
-            instance = _get_working_instance()
-            # Simple search - Invidious API handles UTF-8 fine
-            search_url = f"{instance}/api/v1/search?q={quote(keyword)}&type=video"
-            print(f"[INVIDIOUS] Search URL: {search_url[:100]}...")
-            resp = requests.get(search_url, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
-            videos = data.get("items", [])
-            
-            # Filter to channel if we found any (optional - just use all for now)
-            result = videos[:20]  # Limit to top 20 results
-            print(f"[INVIDIOUS] Found {len(result)} matching videos")
-        except Exception as exc:
-            error = exc
+        for instance in instances_to_try:
+            try:
+                search_url = f"{instance}/api/v1/search?q={quote(keyword)}&type=video"
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
+                print(f"[INVIDIOUS] Trying {instance}...")
+                resp = requests.get(search_url, timeout=8, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                videos = data.get("items", [])
+                
+                if videos:
+                    result = videos[:20]
+                    print(f"[INVIDIOUS] Success! Found {len(result)} videos on {instance}")
+                    return
+            except Exception as e:
+                print(f"[INVIDIOUS] {instance} failed: {str(e)[:50]}")
+                error = e
+                continue
+        
+        # If all instances failed, keep the last error
+        if not result:
+            error = Exception("All Invidious instances failed")
 
     thread = threading.Thread(target=search_worker, daemon=True)
     thread.start()
@@ -113,7 +125,7 @@ def _search_channel_videos(channel_handle: str, keyword: str, timeout_seconds: i
     if thread.is_alive():
         raise TimeoutError(f"Invidious search timed out after {timeout_seconds}s")
     
-    if error:
+    if error and not result:
         raise error
     
     return result
