@@ -13,6 +13,24 @@ import yt_dlp
 _RUNTIME_COOKIE_FILE: Optional[str] = None
 
 
+def _normalize_cookie_env_text(raw_text: str) -> str:
+    text = raw_text.strip()
+    if not text:
+        return ""
+
+    # Strip wrapping quotes if present in env value.
+    if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
+        text = text[1:-1]
+
+    # Some env providers store newlines/tabs as escaped literals.
+    if "\\n" in text and "\n" not in text:
+        text = text.replace("\\n", "\n")
+    if "\\t" in text and "\t" not in text:
+        text = text.replace("\\t", "\t")
+
+    return text
+
+
 def _is_netscape_cookie_text(cookie_text: str) -> bool:
     stripped = cookie_text.strip()
     if stripped.startswith("# Netscape HTTP Cookie File"):
@@ -58,10 +76,10 @@ def _resolve_cookie_file_from_env() -> Optional[str]:
 
     # Try to load cookie text from env vars
     # Priority: YOUTUBE_COOKIES > YTDLP_COOKIES_TEXT > YTDLP_COOKIES_B64
-    cookie_text = os.getenv("YOUTUBE_COOKIES", "").strip()
+    cookie_text = _normalize_cookie_env_text(os.getenv("YOUTUBE_COOKIES", ""))
     
     if not cookie_text:
-        cookie_text = os.getenv("YTDLP_COOKIES_TEXT", "")
+        cookie_text = _normalize_cookie_env_text(os.getenv("YTDLP_COOKIES_TEXT", ""))
     
     if not cookie_text:
         cookie_b64 = os.getenv("YTDLP_COOKIES_B64", "").strip()
@@ -71,6 +89,8 @@ def _resolve_cookie_file_from_env() -> Optional[str]:
             except Exception as exc:
                 print(f"Invalid YTDLP_COOKIES_B64 value: {exc}")
                 cookie_text = ""
+
+    cookie_text = _normalize_cookie_env_text(cookie_text)
 
     if not cookie_text.strip():
         return None
