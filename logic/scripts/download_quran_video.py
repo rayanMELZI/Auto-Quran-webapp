@@ -210,10 +210,54 @@ def _search_channel_videos(channel_handle: str, keyword: str, timeout_seconds: i
 
 
 def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: int = 60) -> None:
-    """Download video from Invidious first, fallback to direct YouTube."""
+    """Download video from YouTube first, fallback to Invidious."""
+    youtube_error: Optional[Exception] = None
+    
+    # Try YouTube first (works best when YOUTUBE_COOKIES is configured)
+    def youtube_download_worker():
+        nonlocal youtube_error
+        try:
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            
+            opts = {
+                "format": "best",
+                "outtmpl": str(output_path),
+                "quiet": False,
+                "no_warnings": False,
+                "socket_timeout": 15,
+                "noplaylist": True,
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "tv_embedded", "web"]
+                    }
+                },
+            }
+            
+            opts = _apply_optional_youtube_cookies(opts)
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([video_url])
+                print(f"[YOUTUBE] Successfully downloaded {video_id}")
+                return  # Success, exit
+        except Exception as exc:
+            youtube_error = exc
+
+    thread = threading.Thread(target=youtube_download_worker, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout_seconds // 2)
+
+    # If YouTube succeeded (file exists), we're done
+    if output_path.exists() and output_path.stat().st_size > 0:
+        return
+    
+    # If thread is still running, proceed to fallback
+    if thread.is_alive():
+        print("[DOWNLOAD] YouTube taking too long, trying Invidious fallback...")
+    
+    # Try Invidious fallback
+    print(f"[INVIDIOUS] Trying Invidious fallback download for {video_id}...")
     invidious_error: Optional[Exception] = None
     
-    # Try Invidious first
     def invidious_download_worker():
         nonlocal invidious_error
         try:
@@ -221,7 +265,7 @@ def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: in
             video_url = f"{instance}/watch?v={video_id}"
             
             opts = {
-                "format": "18/best[ext=mp4]/best",
+                "format": "best",
                 "outtmpl": str(output_path),
                 "quiet": False,
                 "no_warnings": False,
@@ -238,67 +282,23 @@ def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: in
             opts = _apply_optional_youtube_cookies(opts)
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([video_url])
-                print(f"[INVIDIOUS] Successfully downloaded {video_id}")
-                return  # Success, exit
+                print(f"[INVIDIOUS] Successfully downloaded {video_id} from {instance}")
         except Exception as exc:
             invidious_error = exc
-
-    thread = threading.Thread(target=invidious_download_worker, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout_seconds // 2)  # Use half the timeout for Invidious
-
-    # If Invidious succeeded (file exists), we're done
-    if output_path.exists() and output_path.stat().st_size > 0:
-        return
     
-    # If thread is still running, let it finish in background but proceed to fallback
-    if thread.is_alive():
-        print("[DOWNLOAD] Invidious taking too long, trying YouTube fallback...")
-    
-    # Try YouTube direct
-    print(f"[YOUTUBE] Trying direct YouTube download for {video_id}...")
-    youtube_error: Optional[Exception] = None
-    
-    def youtube_download_worker():
-        nonlocal youtube_error
-        try:
-            video_url = f"https://www.youtube.com/watch?v={video_id}"
-            
-            opts = {
-                "format": "18/best[ext=mp4]/best",
-                "outtmpl": str(output_path),
-                "quiet": False,
-                "no_warnings": False,
-                "socket_timeout": 15,
-                "noplaylist": True,
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "extractor_args": {
-                    "youtube": {
-                        "player_client": ["android", "tv_embedded", "web"]
-                    }
-                },
-            }
-            
-            opts = _apply_optional_youtube_cookies(opts)
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([video_url])
-                print(f"[YOUTUBE] Successfully downloaded {video_id} from YouTube")
-        except Exception as exc:
-            youtube_error = exc
-    
-    youtube_thread = threading.Thread(target=youtube_download_worker, daemon=True)
-    youtube_thread.start()
-    youtube_thread.join(timeout=timeout_seconds // 2)
+    invidious_thread = threading.Thread(target=invidious_download_worker, daemon=True)
+    invidious_thread.start()
+    invidious_thread.join(timeout=timeout_seconds // 2)
     
     # Check if either method succeeded
     if output_path.exists() and output_path.stat().st_size > 0:
         return
     
     # Both failed
-    if youtube_error:
-        raise youtube_error
     if invidious_error:
         raise invidious_error
+    if youtube_error:
+        raise youtube_error
     
     raise TimeoutError(f"Video download timed out after {timeout_seconds}s")
 
