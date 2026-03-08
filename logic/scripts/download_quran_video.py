@@ -352,97 +352,41 @@ def download_quran_video(
             output.unlink()
 
         try:
-            # Strategy: List available formats and explicitly download the first available one
-            print(f"[DEBUG] Listing formats for video: {selected_id}")
-            list_opts: Dict[str, Any] = {
+            # Simplest possible approach: just download with minimal options, short timeout
+            print(f"[DOWNLOAD] Attempting video: {selected_id}")
+            download_opts: Dict[str, Any] = {
                 **_get_common_ydl_opts(),
-                "listformats": True,
-                "quiet": False,
+                "format": "worst/best",  # Worst fallback for maximum compatibility
+                "socket_timeout": 15,  # 15 second socket timeout to avoid hangs
+                "outtmpl": str(output),
+                "quiet": True,
+                "no_warnings": True,
                 "noplaylist": True,
             }
             
-            # First, list formats to see what's available
-            try:
-                with yt_dlp.YoutubeDL(cast(Any, list_opts)) as ydl:
-                    video_info = ydl.extract_info(resolved_video_url, download=False)
-                    if video_info and video_info.get("formats"):
-                        formats = video_info["formats"]
-                        print(f"[DEBUG] Found {len(formats)} formats for {selected_id}")
-                        # Get the best format with both video and audio, or just best overall
-                        best_format = None
-                        for fmt in reversed(formats):  # Usually later formats are better
-                            if fmt.get("vcodec") != "none" and fmt.get("acodec") != "none":
-                                best_format = fmt.get("format_id")
-                                break
-                        if not best_format and formats:
-                            best_format = formats[-1].get("format_id")  # Just use last format
-                        
-                        if best_format:
-                            print(f"[DEBUG] Selected format ID: {best_format}")
-                            download_opts: Dict[str, Any] = {
-                                **_get_common_ydl_opts(),
-                                "format": best_format,
-                                "outtmpl": str(output),
-                                "quiet": False,
-                                "no_warnings": False,
-                                "noplaylist": True,
-                            }
-                            _download_with_fallback(resolved_video_url, download_opts)
-                        else:
-                            raise Exception("No format ID could be determined")
-                    else:
-                        raise Exception("No formats found in video info")
-            except Exception as list_exc:
-                # If listing fails, try the absolute simplest download
-                print(f"[DEBUG] Format listing failed: {list_exc}, trying direct download")
-                primary_opts: Dict[str, Any] = {
-                    **_get_common_ydl_opts(),
-                    "outtmpl": str(output),
-                    "quiet": False,
-                    "no_warnings": False,
-                    "noplaylist": True,
-                }
-                _download_with_fallback(resolved_video_url, primary_opts)
+            with yt_dlp.YoutubeDL(cast(Any, download_opts)) as ydl:
+                ydl.download([resolved_video_url])
 
         except Exception as primary_exc:
-            try:
-                # Final fallback: Try with worstaudio+worstvideo (guaranteed to exist if any format exists)
-                if not _is_format_error(primary_exc):
-                    raise
+            # If download timed out or failed, skip to next video
+            if not video_url and ("timed out" in str(primary_exc).lower() or "connection" in str(primary_exc).lower()):
+                print(f"[SKIP] Timeout/connection error for {selected_id}, trying next video")
+                continue
+            
+            # If format error in channel mode, skip this video  
+            if not video_url and _is_retryable_video_error(primary_exc):
+                print(f"[SKIP] Format/auth error for {selected_id}: {primary_exc}")
+                continue
 
-                print(f"[DEBUG] All strategies failed, trying worst quality for: {selected_id}")
-                fallback_opts: Dict[str, Any] = {
-                    **_get_common_ydl_opts(),
-                    "format": "worst",  # Absolute fallback
-                    "outtmpl": str(output),
-                    "quiet": False,
-                    "no_warnings": False,
-                    "noplaylist": True,
-                }
-                _download_with_fallback(resolved_video_url, fallback_opts)
-
-            except Exception as exc:
-                if not video_url and _is_retryable_video_error(exc):
-                    # Channel mode: skip blocked or challenge-hit videos and try the next candidate.
-                    print(f"Skipping blocked video {selected_id}: {exc}")
-                    continue
-
-                print(f"Error downloading selected video: {exc}")
-                if video_url and _is_auth_challenge_error(exc):
-                    return None, None, _build_meta(
-                        video_id=selected_id,
-                        source_type=source_type,
-                        message=(
-                            "This video requires YouTube authentication. Set YTDLP_COOKIES_FILE "
-                            "to an exported cookies.txt path (recommended on Render), or use a "
-                            "different public video URL."
-                        ),
-                    )
+            print(f"[ERROR] Download failed for {selected_id}: {primary_exc}")
+            if video_url:
                 return None, None, _build_meta(
                     video_id=selected_id,
                     source_type=source_type,
-                    message=f"Error downloading selected video: {exc}",
+                    message=f"Error downloading selected video: {primary_exc}",
                 )
+            # Only return error if it's not a skippable error in channel mode
+            continue
 
         _append_downloaded_id(downloaded_file, selected_id)
         title = candidate.get("title")
