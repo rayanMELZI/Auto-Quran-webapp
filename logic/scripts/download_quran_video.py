@@ -2,7 +2,9 @@ import argparse
 import base64
 import os
 import random
+import signal
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Dict, Optional, Set, Tuple, cast
 from urllib.parse import unquote
@@ -151,25 +153,71 @@ def _can_retry_without_cookies(exc: Exception, opts: Dict[str, Any]) -> bool:
     return has_cookie_opts and any(marker in message for marker in cookie_error_markers)
 
 
+def _extract_info_with_timeout(url: str, opts: Dict[str, Any], timeout_seconds: int = 20) -> Dict[str, Any]:
+    """Extract info with timeout to prevent hangs."""
+    result: Dict[str, Any] = {}
+    error: Optional[Exception] = None
+
+    def extract_worker():
+        nonlocal result, error
+        try:
+            with yt_dlp.YoutubeDL(cast(Any, opts)) as ydl:
+                result = cast(Dict[str, Any], ydl.extract_info(url, download=False))
+        except Exception as exc:
+            error = exc
+
+    thread = threading.Thread(target=extract_worker, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout_seconds)
+
+    if thread.is_alive():
+        raise TimeoutError(f"YouTube info extraction timed out after {timeout_seconds} seconds")
+
+    if error:
+        raise error
+
+    return result
+
+
 def _extract_info_with_fallback(url: str, opts: Dict[str, Any]) -> Dict[str, Any]:
     try:
-        with yt_dlp.YoutubeDL(cast(Any, opts)) as ydl:
-            return cast(Dict[str, Any], ydl.extract_info(url, download=False))
+        return _extract_info_with_timeout(url, opts, timeout_seconds=20)
     except Exception as exc:
         if not _can_retry_without_cookies(exc, opts):
             raise
         retry_opts = dict(opts)
         retry_opts.pop("cookiesfrombrowser", None)
         retry_opts.pop("cookiefile", None)
-        print("Cookie loading failed. Retrying YouTube request without cookies.")
-        with yt_dlp.YoutubeDL(cast(Any, retry_opts)) as ydl:
-            return cast(Dict[str, Any], ydl.extract_info(url, download=False))
+        print("Cookie loading failed or timed out. Retrying YouTube request without cookies.")
+        return _extract_info_with_timeout(url, retry_opts, timeout_seconds=20)
+
+
+def _download_with_timeout(url: str, opts: Dict[str, Any], timeout_seconds: int = 30) -> None:
+    """Download video with timeout to prevent hangs."""
+    error: Optional[Exception] = None
+
+    def download_worker():
+        nonlocal error
+        try:
+            with yt_dlp.YoutubeDL(cast(Any, opts)) as ydl:
+                ydl.download([url])
+        except Exception as exc:
+            error = exc
+
+    thread = threading.Thread(target=download_worker, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout_seconds)
+
+    if thread.is_alive():
+        raise TimeoutError(f"Video download timed out after {timeout_seconds} seconds")
+
+    if error:
+        raise error
 
 
 def _download_with_fallback(url: str, opts: Dict[str, Any]) -> None:
     try:
-        with yt_dlp.YoutubeDL(cast(Any, opts)) as ydl:
-            ydl.download([url])
+        _download_with_timeout(url, opts, timeout_seconds=30)
     except Exception as exc:
         if not _can_retry_without_cookies(exc, opts):
             raise
@@ -177,8 +225,7 @@ def _download_with_fallback(url: str, opts: Dict[str, Any]) -> None:
         retry_opts.pop("cookiesfrombrowser", None)
         retry_opts.pop("cookiefile", None)
         print("Cookie loading failed. Retrying download without cookies.")
-        with yt_dlp.YoutubeDL(cast(Any, retry_opts)) as ydl:
-            ydl.download([url])
+        _download_with_timeout(url, retry_opts, timeout_seconds=30)
 
 
 def _load_downloaded_ids(file_path: Path) -> Set[str]:
