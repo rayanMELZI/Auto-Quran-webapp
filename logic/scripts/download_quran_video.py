@@ -103,6 +103,11 @@ def _search_youtube_fallback(keyword: str, timeout_seconds: int = 20) -> list:
                 'ignoreerrors': True,
                 'extract_flat': True,
                 'skip_download': True,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'tv_embedded', 'web']
+                    }
+                },
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(f"ytsearch20:{keyword}", download=False)
@@ -204,6 +209,11 @@ def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: in
                 "socket_timeout": 15,
                 "noplaylist": True,
                 "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "tv_embedded", "web"]
+                    }
+                },
             }
             
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -242,6 +252,11 @@ def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: in
                 "socket_timeout": 15,
                 "noplaylist": True,
                 "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "tv_embedded", "web"]
+                    }
+                },
             }
             
             with yt_dlp.YoutubeDL(opts) as ydl:
