@@ -99,8 +99,10 @@ def _search_youtube_fallback(keyword: str, timeout_seconds: int = 20) -> list:
                 'quiet': True,
                 'no_warnings': True,
                 'default_search': 'ytsearch',
-                'socket_timeout': 15,
+                'socket_timeout': 20,
                 'ignoreerrors': True,
+                'extract_flat': True,
+                'skip_download': True,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(f"ytsearch20:{keyword}", download=False)
@@ -165,7 +167,7 @@ def _search_channel_videos(channel_handle: str, keyword: str, timeout_seconds: i
 
     thread = threading.Thread(target=search_worker, daemon=True)
     thread.start()
-    thread.join(timeout=timeout_seconds - 5)  # Leave time for fallback
+    thread.join(timeout=max(5, timeout_seconds - 15))  # Reserve time for fallback
 
     # If Invidious succeeded, return
     if result:
@@ -173,7 +175,7 @@ def _search_channel_videos(channel_handle: str, keyword: str, timeout_seconds: i
     
     # Try YouTube fallback if all Invidious instances failed
     print("[SEARCH] All Invidious instances failed, trying YouTube fallback...")
-    youtube_result = _search_youtube_fallback(keyword, timeout_seconds=5)
+    youtube_result = _search_youtube_fallback(keyword, timeout_seconds=15)
     if youtube_result:
         return youtube_result
     
