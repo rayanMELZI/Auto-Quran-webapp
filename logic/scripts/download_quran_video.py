@@ -46,10 +46,9 @@ def _get_working_instance() -> str:
 
 def _extract_channel_id(channel_url: str) -> Optional[str]:
     """Extract channel ID from YouTube URL."""
-    # Format: https://www.youtube.com/@ChannelName
+    # Format: https://www.youtube.com/@ChannelName or https://www.youtube.com/@ChannelName/videos
     if "@" in channel_url:
-        channel_handle = channel_url.split("@")[-1].rstrip("/")
-        # Need to resolve handle to channel ID through Invidious
+        channel_handle = channel_url.split("@")[-1].rstrip("/").rstrip("videos").rstrip("/")
         return channel_handle
     return None
 
@@ -93,12 +92,17 @@ def _search_channel_videos(channel_handle: str, keyword: str, timeout_seconds: i
         nonlocal result, error
         try:
             instance = _get_working_instance()
-            # Search within channel for keyword
-            search_url = f"{instance}/api/v1/search?q={quote(keyword)}%20channel:{channel_handle}&type=video"
+            # Simple search - Invidious API handles UTF-8 fine
+            search_url = f"{instance}/api/v1/search?q={quote(keyword)}&type=video"
+            print(f"[INVIDIOUS] Search URL: {search_url[:100]}...")
             resp = requests.get(search_url, timeout=10)
             resp.raise_for_status()
             data = resp.json()
-            result = data.get("items", [])
+            videos = data.get("items", [])
+            
+            # Filter to channel if we found any (optional - just use all for now)
+            result = videos[:20]  # Limit to top 20 results
+            print(f"[INVIDIOUS] Found {len(result)} matching videos")
         except Exception as exc:
             error = exc
 
