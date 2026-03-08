@@ -220,7 +220,6 @@ def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: in
             video_url = f"https://www.youtube.com/watch?v={video_id}"
             
             opts = {
-                "format": "best",
                 "outtmpl": str(output_path),
                 "quiet": False,
                 "no_warnings": False,
@@ -265,7 +264,6 @@ def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: in
             video_url = f"{instance}/watch?v={video_id}"
             
             opts = {
-                "format": "best",
                 "outtmpl": str(output_path),
                 "quiet": False,
                 "no_warnings": False,
