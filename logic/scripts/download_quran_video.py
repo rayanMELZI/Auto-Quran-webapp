@@ -92,10 +92,14 @@ def _resolve_cookie_file_from_env() -> Optional[str]:
 
 def _get_common_ydl_opts() -> Dict[str, Any]:
     """Get common yt-dlp options to bypass bot detection."""
+    cookie_file = _resolve_cookie_file_from_env()
+    player_clients = ["web"] if cookie_file else ["android", "web"]
+
     opts: Dict[str, Any] = {
         "nocheckcertificate": True,
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+        "extractor_args": {"youtube": {"player_client": player_clients}},
+        "sleep_interval_requests": 1,
     }
 
     # Optional cookie support for auth-required YouTube videos.
@@ -105,7 +109,6 @@ def _get_common_ydl_opts() -> Dict[str, Any]:
     # 3) YTDLP_COOKIES_TEXT (raw cookie content)
     # 4) YTDLP_COOKIES_B64 (base64 encoded content)
     # 5) YTDLP_COOKIES_FROM_BROWSER (local dev only)
-    cookie_file = _resolve_cookie_file_from_env()
     browser = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip().lower()
 
     if cookie_file:
@@ -216,6 +219,18 @@ def _is_format_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return "requested format is not available" in message or "no video formats found" in message
 
+
+def _is_retryable_video_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    markers = [
+        "too many requests",
+        "n challenge solving failed",
+        "only images are available",
+        "requested format is not available",
+        "no video formats found",
+    ]
+    return _is_auth_challenge_error(exc) or any(marker in message for marker in markers)
+
 def download_quran_video(
     channel_url: str = "https://www.youtube.com/@Am9li9/videos",
     output_path: str = "assets/quran_video.mp4",
@@ -249,7 +264,6 @@ def download_quran_video(
                 **_get_common_ydl_opts(),
                 "quiet": True,
                 "skip_download": True,
-                "ignoreerrors": True,
             }
             selected = _extract_info_with_fallback(video_url, video_info_opts)
         except Exception as exc:
@@ -348,8 +362,8 @@ def download_quran_video(
                 _download_with_fallback(resolved_video_url, fallback_opts)
 
             except Exception as exc:
-                if not video_url and _is_auth_challenge_error(exc):
-                    # Channel mode: skip blocked videos and try the next candidate.
+                if not video_url and _is_retryable_video_error(exc):
+                    # Channel mode: skip blocked or challenge-hit videos and try the next candidate.
                     print(f"Skipping blocked video {selected_id}: {exc}")
                     continue
 
