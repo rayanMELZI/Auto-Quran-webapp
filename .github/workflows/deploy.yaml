@@ -35,7 +35,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Prepare SSH access
+      - name: Install cloudflared for tunnel access
+        run: |
+          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+          rm cloudflared.deb
+
+      - name: Prepare SSH access with Cloudflare Tunnel
         run: |
           set -euo pipefail
 
@@ -52,15 +58,20 @@ jobs:
           printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-          # Add host fingerprint (best-effort) but ignore failures from ssh-keyscan
-          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts || true
+          # Create SSH config to use cloudflared access SSH for tunnel domain
+          tee ~/.ssh/config > /dev/null <<'SSHEOF'
+          Host *
+            StrictHostKeyChecking accept-new
+            ProxyCommand cloudflared access ssh --hostname %h
+          SSHEOF
+          chmod 644 ~/.ssh/config
 
       - name: Copy the project to the server
         run: |
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "mkdir -p ${APP_DIR}"
+          ssh -i ~/.ssh/id_rsa "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "mkdir -p ${APP_DIR}"
 
           rsync -az --delete \
-            -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes" \
+            -e "ssh -i ~/.ssh/id_rsa" \
             --exclude '.git' \
             --exclude '.github' \
             --exclude '.venv' \
@@ -71,7 +82,7 @@ jobs:
 
       - name: Install dependencies and restart the app
         run: |
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" <<EOF
+          ssh -i ~/.ssh/id_rsa "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" <<EOF
           set -e
           cd ${APP_DIR}
 
