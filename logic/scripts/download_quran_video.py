@@ -7,7 +7,7 @@ import os
 import random
 import threading
 from pathlib import Path
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import quote
 
 import requests
@@ -336,6 +336,99 @@ def _build_meta(
     }
 
 
+def _is_auth_challenge_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    markers = [
+        "sign in to confirm youre not a bot",
+        "sign in to confirm you're not a bot",
+        "use --cookies-from-browser or --cookies",
+        "this video is age-restricted",
+        "login required",
+    ]
+    return any(marker in message for marker in markers)
+
+
+def _is_format_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "requested format is not available" in message or "no video formats found" in message
+
+
+def _is_retryable_video_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    markers = [
+        "too many requests",
+        "n challenge solving failed",
+        "only images are available",
+        "requested format is not available",
+        "no video formats found",
+    ]
+    return _is_auth_challenge_error(exc) or any(marker in message for marker in markers)
+
+
+def _validate_audio(video_path: str) -> Tuple[bool, str]:
+    """
+    Validate that the downloaded video has working audio throughout.
+    Returns (is_valid, reason_message).
+
+    Checks for:
+      - Missing audio track
+      - Silent / inaudible audio (all near-zero RMS)
+      - White noise / static (uniform RMS with no amplitude variation)
+    """
+    try:
+        import numpy as np
+        from moviepy.editor import VideoFileClip
+
+        with VideoFileClip(video_path) as clip:
+            if clip.audio is None:
+                return False, "Video has no audio track."
+
+            duration = clip.duration
+            if duration < 1.0:
+                return False, "Video is too short to validate audio."
+
+            # Sample evenly-spaced 1-second windows (1 per 30 s, clamped 3–10 windows)
+            n_windows = min(10, max(3, int(duration / 30)))
+            rms_values: List[float] = []
+            for i in range(n_windows):
+                t_start = duration * i / n_windows
+                t_end = min(t_start + 1.0, duration)
+                try:
+                    chunk = clip.audio.subclip(t_start, t_end)
+                    arr = chunk.to_soundarray(fps=4000)
+                    rms = float(np.sqrt(np.mean(arr ** 2)))
+                    rms_values.append(rms)
+                except Exception:
+                    pass
+
+        if not rms_values:
+            return False, "Could not extract audio samples from video."
+
+        import numpy as np  # ensure available outside 'with' block
+        rms_arr = np.array(rms_values)
+        mean_rms = float(np.mean(rms_arr))
+        std_rms = float(np.std(rms_arr))
+
+        # Silence check: mean RMS below perceptible level
+        if mean_rms < 0.01:
+            return False, f"Audio is silent or inaudible (mean RMS={mean_rms:.5f})."
+
+        # White noise / static check: real speech/recitation has clear amplitude variation;
+        # static noise stays at a constant (low variation) level.
+        variation_ratio = std_rms / mean_rms if mean_rms > 0 else 0.0
+        if variation_ratio < 0.05:
+            return False, (
+                f"Audio appears to be white noise or static "
+                f"(mean RMS={mean_rms:.4f}, variation ratio={variation_ratio:.3f})."
+            )
+
+        print(f"Audio validation passed (mean RMS={mean_rms:.4f}, variation={variation_ratio:.3f}).")
+        return True, "Audio OK."
+
+    except Exception as exc:
+        return False, f"Audio validation error: {exc}"
+
+
 def download_quran_video(
     channel_url: str = "https://www.youtube.com/@Am9li9/videos",
     output_path: str = "assets/quran_video.mp4",
@@ -440,15 +533,33 @@ def download_quran_video(
                 return str(output), title, _build_meta(
                     video_id=video_id,
                     source_type=source_type,
-                    message="Video downloaded successfully.",
+                    message=f"Error downloading selected video: {exc}",
                 )
-            except Exception as exc:
-                print(f"[DOWNLOAD] Failed for {video_id}: {exc}, trying next...")
-                continue
 
-        return None, None, _build_meta(
+        # Validate audio before accepting the download
+        audio_valid, audio_msg = _validate_audio(str(output))
+        if not audio_valid:
+            print(f"Audio validation failed for {selected_id}: {audio_msg}")
+            # Mark as seen so we don't waste time re-downloading a bad copy
+            _append_downloaded_id(downloaded_file, selected_id)
+            if not video_url:
+                # Channel mode: skip this video and try the next candidate
+                continue
+            # Direct-URL mode: surface the error to the caller
+            return None, None, _build_meta(
+                video_id=selected_id,
+                source_type=source_type,
+                message=f"Downloaded video has audio issues: {audio_msg}",
+            )
+
+        _append_downloaded_id(downloaded_file, selected_id)
+        title = candidate.get("title")
+        print(f"Downloaded: {title} -> {output}")
+        return str(output), title, _build_meta(
+            video_id=selected_id,
             source_type=source_type,
-            message="Could not download any matching videos",
+            duplicate=False,
+            message="Video downloaded successfully.",
         )
 
     except TimeoutError as exc:
