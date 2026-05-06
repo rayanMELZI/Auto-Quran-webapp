@@ -37,10 +37,23 @@ jobs:
 
       - name: Prepare SSH access
         run: |
+          set -euo pipefail
+
+          # Validate required secrets to avoid writing empty keys
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ] || [ -z "${{ secrets.SSH_HOST }}" ] || [ -z "${{ secrets.SSH_USER }}" ]; then
+            echo "ERROR: Missing one or more required secrets: SSH_PRIVATE_KEY, SSH_HOST, SSH_USER"
+            echo "Please add them in repository Settings → Secrets and Variables → Actions."
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
+
+          # Write private key safely; fail if empty
           printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+          # Add host fingerprint (best-effort) but ignore failures from ssh-keyscan
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts || true
 
       - name: Copy the project to the server
         run: |
