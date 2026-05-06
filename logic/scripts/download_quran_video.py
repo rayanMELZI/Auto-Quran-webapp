@@ -528,39 +528,29 @@ def download_quran_video(
             try:
                 print(f"[DOWNLOAD] Downloading: {title} ({video_id})")
                 _download_video_direct(video_id, output, timeout_seconds=60)
+                if not output.exists() or output.stat().st_size <= 0:
+                    continue
+
+                audio_valid, audio_msg = _validate_audio(str(output))
+                if not audio_valid:
+                    print(f"Audio validation failed for {video_id}: {audio_msg}")
+                    if output.exists():
+                        output.unlink()
+                    continue
+
                 _append_downloaded_id(downloaded_file, video_id)
-                
+                print(f"Downloaded: {title} -> {output}")
                 return str(output), title, _build_meta(
                     video_id=video_id,
                     source_type=source_type,
-                    message=f"Error downloading selected video: {exc}",
+                    duplicate=False,
+                    message="Video downloaded successfully.",
                 )
-
-        # Validate audio before accepting the download
-        audio_valid, audio_msg = _validate_audio(str(output))
-        if not audio_valid:
-            print(f"Audio validation failed for {selected_id}: {audio_msg}")
-            # Mark as seen so we don't waste time re-downloading a bad copy
-            _append_downloaded_id(downloaded_file, selected_id)
-            if not video_url:
-                # Channel mode: skip this video and try the next candidate
+            except Exception as exc:
+                print(f"[DOWNLOAD] Failed for {video_id}: {exc}")
+                if output.exists():
+                    output.unlink()
                 continue
-            # Direct-URL mode: surface the error to the caller
-            return None, None, _build_meta(
-                video_id=selected_id,
-                source_type=source_type,
-                message=f"Downloaded video has audio issues: {audio_msg}",
-            )
-
-        _append_downloaded_id(downloaded_file, selected_id)
-        title = candidate.get("title")
-        print(f"Downloaded: {title} -> {output}")
-        return str(output), title, _build_meta(
-            video_id=selected_id,
-            source_type=source_type,
-            duplicate=False,
-            message="Video downloaded successfully.",
-        )
 
     except TimeoutError as exc:
         return None, None, _build_meta(
