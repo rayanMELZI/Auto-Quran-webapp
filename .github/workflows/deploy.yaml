@@ -24,17 +24,6 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install project dependencies locally
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
       - name: Install cloudflared for tunnel access
         run: |
           curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
@@ -45,20 +34,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Validate required secrets to avoid writing empty keys
+          # Validate required secrets
           if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ] || [ -z "${{ secrets.SSH_HOST }}" ] || [ -z "${{ secrets.SSH_USER }}" ]; then
             echo "ERROR: Missing one or more required secrets: SSH_PRIVATE_KEY, SSH_HOST, SSH_USER"
-            echo "Please add them in repository Settings → Secrets and Variables → Actions."
             exit 1
           fi
 
           mkdir -p ~/.ssh
-
-          # Write private key safely; fail if empty
           printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-          # Create SSH config to use cloudflared access SSH for tunnel domain
           tee ~/.ssh/config > /dev/null <<'SSHEOF'
           Host *
             StrictHostKeyChecking accept-new
@@ -77,22 +62,35 @@ jobs:
             --exclude '.venv' \
             --exclude '__pycache__' \
             --exclude '.pytest_cache' \
+            --exclude 'assets/*' \
+            --exclude 'output/*' \
+            --exclude 'data/*' \
             ./ \
             "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${APP_DIR}/"
 
-      - name: Install dependencies and restart the app
+      - name: Deploy with Docker Compose
         run: |
           ssh -i ~/.ssh/id_rsa "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" <<EOF
           set -e
           cd ${APP_DIR}
 
-          if [ ! -d .venv ]; then
-            python3 -m venv .venv
+          # Stop and disable old systemctl service if it exists
+          if systemctl is-active --quiet quran-app; then
+            sudo systemctl stop quran-app
+            sudo systemctl disable quran-app
           fi
 
-          . .venv/bin/activate
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          # Create .env file from secrets
+          cat > .env <<ENVEOF
+          UNSPLASH_API_KEY=${{ secrets.UNSPLASH_API_KEY }}
+          INSTA_USERNAME=${{ secrets.INSTA_USERNAME }}
+          INSTA_PASSWORD=${{ secrets.INSTA_PASSWORD }}
+          PORT=5000
+          ENVEOF
 
-          sudo systemctl restart quran-app
+          # Ensure directories exist for volumes
+          mkdir -p assets output data
+
+          # Deploy using Docker Compose
+          sudo docker compose up --build -d
           EOF

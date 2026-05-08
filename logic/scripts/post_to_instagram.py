@@ -11,7 +11,7 @@ def post_to_instagram(
     video_path: str,
     caption: str,
     thumbnail_path: str = "assets/nature_image.jpg",
-    session_file: str = "instagram_session.json",
+    session_file: str = "assets/instagram_session.json",
 ) -> bool:
     print("Posting to Instagram...")
 
@@ -68,7 +68,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("video_path", help="Path to the final video")
     parser.add_argument("caption", help="Caption text")
     parser.add_argument("--thumbnail", default="assets/nature_image.jpg", help="Thumbnail image path")
-    parser.add_argument("--session-file", default="instagram_session.json", help="Path to session json")
+    parser.add_argument("--session-file", default="assets/instagram_session.json", help="Path to session json")
     return parser
 
 

@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: auto-quran
+    restart: always
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./assets:/app/assets
+      - ./output:/app/output
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Explicitly set port if needed by app.py
+      - PORT=5000
