@@ -2,16 +2,16 @@ from pathlib import Path
 
 from logic.scripts.download_quran_video import (
     _build_meta,
-    _extract_channel_id,
+    _extract_channel_handle,
     _is_auth_challenge_error,
     _is_retryable_video_error,
     _load_downloaded_ids,
 )
 
 
-def test_extract_channel_id_handles_channel_and_videos_urls():
-    assert _extract_channel_id("https://www.youtube.com/@ExampleChannel") == "ExampleChannel"
-    assert _extract_channel_id("https://www.youtube.com/@ExampleChannel/videos") == "ExampleChannel"
+def test_extract_channel_handle_handles_channel_and_videos_urls():
+    assert _extract_channel_handle("https://www.youtube.com/@ExampleChannel") == "ExampleChannel"
+    assert _extract_channel_handle("https://www.youtube.com/@ExampleChannel/videos") == "ExampleChannel"
 
 
 def test_load_downloaded_ids_creates_missing_file(tmp_path):

@@ -359,31 +359,35 @@ def _run_full_pipeline_bg_impl(
                     else "Daily Quran verse"
                 )
 
-            success = post_to_instagram(
+            post_out = post_to_instagram(
                 final_video_path,
                 caption,
                 state.pipeline_state.get("image_path") or "assets/nature_image.jpg",
             )
-            if not success:
+            if not post_out.get("success"):
+                # Non-fatal: video is ready; Instagram often fails on IP / rate limits
                 post_result = {
                     "step": "post",
                     "success": False,
-                    "message": "Pipeline completed but posting failed",
+                    "message": post_out.get("message", "Instagram upload failed."),
+                    "error_category": post_out.get("error_category"),
                 }
                 set_step(
                     app,
                     "post",
-                    status="error",
+                    status="completed",
                     progress=100,
                     message=post_result["message"],
                     result=post_result,
                 )
-                finalize_progress(app, "Pipeline completed with post failure")
+                finalize_progress(
+                    "Pipeline completed successfully (video ready; Instagram upload failed — see server logs)"
+                )
                 return
             post_result = {
                 "step": "post",
                 "success": True,
-                "message": "Video posted to Instagram successfully",
+                "message": post_out.get("message", "Video posted to Instagram successfully"),
             }
             set_step(
                 app,

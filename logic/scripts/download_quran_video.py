@@ -332,61 +332,6 @@ def _get_channel_videos(channel_identifier: str, timeout_seconds: int = 20) -> D
     return result
 
 
-def _search_youtube_fallback(keyword: str, timeout_seconds: int = 20) -> list:
-    """Fallback search using yt-dlp directly on YouTube."""
-    result: list = []
-    error: Optional[Exception] = None
-    
-    def youtube_worker():
-        nonlocal result, error
-        try:
-            print("[YOUTUBE_FALLBACK] Attempting YouTube search...")
-            ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'default_search': 'ytsearch',
-                'socket_timeout': 20,
-                'ignoreerrors': True,
-                'ignoreconfig': True,
-                'extract_flat': True,
-                'skip_download': True,
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android', 'tv_embedded', 'web']
-                    }
-                },
-            }
-            ydl_opts = _apply_optional_youtube_cookies(ydl_opts)
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"ytsearch20:{keyword}", download=False)
-                if info and 'entries' in info:
-                    result = [
-                        {
-                            'videoId': entry.get('id'),
-                            'title': entry.get('title', 'Unknown'),
-                            'author': entry.get('uploader', 'Unknown'),
-                        }
-                        for entry in info['entries']
-                        if entry and entry.get('id')
-                    ][:20]
-                    if result:
-                        print(f"[YOUTUBE_FALLBACK] Found {len(result)} videos on YouTube")
-                        return
-        except Exception as e:
-            print(f"[YOUTUBE_FALLBACK] Failed: {str(e)[:50]}")
-            error = e
-    
-    thread = threading.Thread(target=youtube_worker, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout_seconds)
-    
-    if thread.is_alive():
-        print("[YOUTUBE_FALLBACK] Timeout")
-        return []
-    
-    return result
-
-
 def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: int = 60) -> None:
     """Download video from YouTube first, fallback to Invidious."""
     youtube_error: Optional[Exception] = None

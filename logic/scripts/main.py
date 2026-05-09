@@ -75,14 +75,14 @@ def create_and_post_quran_content(
         return True
 
     caption = build_caption(video_title=video_title, custom_caption=custom_caption)
-    success = post_to_instagram(final_video_path, caption)
+    out = post_to_instagram(final_video_path, caption)
 
-    if success:
+    if out.get("success"):
         print("Daily Quran post completed successfully!")
-    else:
-        print("Failed during Instagram post step.")
+        return True
 
-    return success
+    print(f"Failed during Instagram post step: {out.get('message', 'unknown error')}")
+    return False
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
