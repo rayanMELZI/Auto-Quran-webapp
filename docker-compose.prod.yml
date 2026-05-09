@@ -1,0 +1,6 @@
+# Production overrides: use with `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
+services:
+  app:
+    environment:
+      GUNICORN_WORKERS: "1"
+      GUNICORN_THREADS: "8"

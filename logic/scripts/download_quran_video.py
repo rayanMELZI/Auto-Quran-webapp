@@ -65,13 +65,241 @@ def _get_working_instance() -> str:
     return INVIDIOUS_INSTANCES[0]
 
 
-def _extract_channel_id(channel_url: str) -> Optional[str]:
-    """Extract channel ID from YouTube URL."""
-    # Format: https://www.youtube.com/@ChannelName or https://www.youtube.com/@ChannelName/videos
-    if "@" in channel_url:
-        channel_handle = channel_url.split("@")[-1].rstrip("/").rstrip("videos").rstrip("/")
-        return channel_handle
-    return None
+def _extract_channel_handle(channel_url: str) -> Optional[str]:
+    """Extract @handle, /channel/ID, or /c/custom from a YouTube channel URL."""
+    if not channel_url or not str(channel_url).strip():
+        return None
+    try:
+        from urllib.parse import urlparse, unquote
+
+        path = unquote(urlparse(channel_url.strip()).path).strip("/")
+        parts = [p for p in path.split("/") if p]
+        for i, seg in enumerate(parts):
+            if seg.startswith("@"):
+                return seg[1:].split("/")[0]
+            if seg == "channel" and i + 1 < len(parts):
+                return parts[i + 1]
+            if seg in ("c", "user") and i + 1 < len(parts):
+                return parts[i + 1]
+        return None
+    except Exception:
+        return None
+
+
+def _ensure_channel_videos_tab_url(channel_url: str) -> str:
+    """Normalize to a /videos URL for yt-dlp channel listing when possible."""
+    u = channel_url.strip()
+    if "/@" in u and "/videos" not in u.split("?")[0]:
+        return u.rstrip("/") + "/videos"
+    if "youtube.com" in u and "channel" in u and "/videos" not in u:
+        return u.rstrip("/") + "/videos"
+    return u
+
+
+def _http_headers() -> Dict[str, str]:
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+    }
+
+
+def _parse_entry_duration_seconds(entry: Dict[str, Any]) -> int:
+    v = entry.get("lengthSeconds")
+    if v is None:
+        v = entry.get("length_seconds") or entry.get("duration")
+    try:
+        return int(v) if v is not None else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalize_video_dict(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    vid = entry.get("videoId") or entry.get("video_id") or entry.get("id")
+    if not vid:
+        return None
+    title = entry.get("title") or "Unknown"
+    return {
+        "videoId": vid,
+        "title": title,
+        "lengthSeconds": _parse_entry_duration_seconds(entry),
+    }
+
+
+def _title_matches_keyword(title: str, keyword: str) -> bool:
+    if not (keyword or "").strip():
+        return True
+    kw = keyword.strip()
+    return kw in (title or "")
+
+
+def _duration_within_cap(length_seconds: int, max_duration_seconds: Optional[int]) -> bool:
+    if not max_duration_seconds or max_duration_seconds <= 0:
+        return True
+    if length_seconds <= 0:
+        # Unknown length: allow (Invidious often fills this); yt-dlp flat usually has duration
+        return True
+    if length_seconds > max_duration_seconds:
+        return False
+    return True
+
+
+def _filter_candidates(
+    videos: List[dict],
+    keyword: str,
+    max_duration_seconds: Optional[int],
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for raw in videos:
+        if not isinstance(raw, dict):
+            continue
+        nv = _normalize_video_dict(raw)
+        if not nv:
+            continue
+        if not _title_matches_keyword(nv["title"], keyword):
+            continue
+        dur = nv["lengthSeconds"]
+        if not _duration_within_cap(dur, max_duration_seconds):
+            print(
+                f"[FILTER] Skip (duration {dur}s > cap {max_duration_seconds}s): "
+                f"{nv['title'][:80]}"
+            )
+            continue
+        out.append(nv)
+    return out
+
+
+def _invidious_collect_channel_videos(channel_handle: str, timeout_seconds: int = 25) -> List[dict]:
+    """Load uploads from a channel using Invidious (same channel as URL), not global search."""
+    collected: List[dict] = []
+    instances_to_try = list(INVIDIOUS_INSTANCES)
+
+    for instance in instances_to_try:
+        try:
+            from urllib.parse import quote
+
+            safe_handle = quote(channel_handle, safe="")
+            # Channel metadata (often includes latestVideos)
+            meta_url = f"{instance}/api/v1/channels/{safe_handle}"
+            resp = requests.get(meta_url, timeout=10, headers=_http_headers())
+            resp.raise_for_status()
+            data = resp.json()
+            latest = data.get("latestVideos") or []
+            collected.extend(latest)
+
+            # Paginated uploads tab
+            continuation: Optional[str] = None
+            for _ in range(5):
+                v_url = f"{instance}/api/v1/channels/{safe_handle}/videos"
+                params: Dict[str, Any] = {}
+                if continuation:
+                    params["continuation"] = continuation
+                r2 = requests.get(v_url, params=params, timeout=12, headers=_http_headers())
+                if r2.status_code != 200:
+                    break
+                payload = r2.json()
+                if isinstance(payload, list):
+                    collected.extend(payload)
+                    break
+                chunk = payload.get("videos") or payload.get("items") or []
+                collected.extend(chunk)
+                continuation = payload.get("continuation")
+                if not continuation or not chunk:
+                    break
+
+            if collected:
+                print(
+                    f"[INVIDIOUS] Channel @{channel_handle}: collected {len(collected)} "
+                    f"candidate video(s) from {instance}"
+                )
+                return collected
+        except Exception as exc:
+            print(f"[INVIDIOUS] Channel listing failed ({instance}): {str(exc)[:120]}")
+            continue
+
+    return []
+
+
+def _yt_dlp_flat_channel_videos(channel_url: str, playlistend: int = 60) -> List[dict]:
+    """List recent uploads from a YouTube channel URL (flat, no download)."""
+    out: List[dict] = []
+    tab_url = _ensure_channel_videos_tab_url(channel_url)
+
+    def worker():
+        nonlocal out
+        try:
+            ydl_opts: Dict[str, Any] = {
+                "quiet": True,
+                "no_warnings": True,
+                "ignoreerrors": True,
+                "ignoreconfig": True,
+                "extract_flat": "in_playlist",
+                "playlistend": playlistend,
+                "socket_timeout": 25,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "tv_embedded", "web"],
+                    }
+                },
+            }
+            ydl_opts = _apply_optional_youtube_cookies(ydl_opts)
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(tab_url, download=False)
+            entries = (info or {}).get("entries") or []
+            for e in entries:
+                if not e:
+                    continue
+                vid = e.get("id")
+                if not vid:
+                    continue
+                title = e.get("title") or "Unknown"
+                dur_raw = e.get("duration")
+                try:
+                    dur = int(dur_raw) if dur_raw is not None else 0
+                except (TypeError, ValueError):
+                    dur = 0
+                out.append({"videoId": vid, "title": title, "lengthSeconds": dur})
+            if out:
+                print(f"[YOUTUBE] Flat-listed {len(out)} video(s) from channel tab")
+        except Exception as exc:
+            print(f"[YOUTUBE] Channel flat extract failed: {str(exc)[:120]}")
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join(timeout=40)
+    if thread.is_alive():
+        print("[YOUTUBE] Channel flat listing timed out")
+        return []
+    return out
+
+
+def _search_channel_videos(
+    channel_url: str,
+    channel_handle: str,
+    keyword: str,
+    max_duration_seconds: Optional[int],
+    timeout_seconds: int = 25,
+) -> list:
+    """
+    Videos from the given YouTube channel only, filtered by title keyword and duration cap.
+    """
+    raw = _invidious_collect_channel_videos(channel_handle, timeout_seconds=timeout_seconds)
+    filtered = _filter_candidates(raw, keyword, max_duration_seconds)
+
+    if filtered:
+        return filtered
+
+    print("[SEARCH] Invidious channel catalog empty after filters; trying YouTube channel tab...")
+    raw_yt = _yt_dlp_flat_channel_videos(channel_url, playlistend=80)
+    filtered_yt = _filter_candidates(raw_yt, keyword, max_duration_seconds)
+
+    if filtered_yt:
+        return filtered_yt
+
+    print(
+        "[SEARCH] No videos from this channel matched keyword/duration "
+        "(not using global search, to avoid wrong-channel downloads)."
+    )
+    return []
 
 
 def _get_channel_videos(channel_identifier: str, timeout_seconds: int = 20) -> Dict[str, Any]:
@@ -157,57 +385,6 @@ def _search_youtube_fallback(keyword: str, timeout_seconds: int = 20) -> list:
         return []
     
     return result
-
-
-def _search_channel_videos(channel_handle: str, keyword: str, timeout_seconds: int = 20) -> list:
-    """Search for videos in channel by keyword using Invidious, with YouTube fallback."""
-    result: list = []
-    error: Optional[Exception] = None
-    
-    # Try all instances for search
-    instances_to_try = INVIDIOUS_INSTANCES + ["https://invidious.projectsegfau.lt"]
-
-    def search_worker():
-        nonlocal result, error
-        for instance in instances_to_try:
-            try:
-                search_url = f"{instance}/api/v1/search?q={quote(keyword)}&type=video"
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                }
-                print(f"[INVIDIOUS] Trying {instance}...")
-                resp = requests.get(search_url, timeout=8, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-                videos = data.get("items", [])
-                
-                if videos:
-                    result = videos[:20]
-                    print(f"[INVIDIOUS] Success! Found {len(result)} videos on {instance}")
-                    return
-            except Exception as e:
-                print(f"[INVIDIOUS] {instance} failed: {str(e)[:50]}")
-                error = e
-                continue
-
-    thread = threading.Thread(target=search_worker, daemon=True)
-    thread.start()
-    thread.join(timeout=max(5, timeout_seconds - 15))  # Reserve time for fallback
-
-    # If Invidious succeeded, return
-    if result:
-        return result
-    
-    # Try YouTube fallback if all Invidious instances failed
-    print("[SEARCH] All Invidious instances failed, trying YouTube fallback...")
-    youtube_result = _search_youtube_fallback(keyword, timeout_seconds=15)
-    if youtube_result:
-        return youtube_result
-    
-    # Both failed
-    if error:
-        raise error
-    raise Exception("All Invidious instances and YouTube fallback failed")
 
 
 def _download_video_direct(video_id: str, output_path: Path, timeout_seconds: int = 60) -> None:
@@ -435,6 +612,7 @@ def download_quran_video(
     downloaded_videos_file: str = "assets/downloaded_videos.txt",
     title_keyword: str = "سورة",
     video_url: Optional[str] = None,
+    max_duration_seconds: Optional[int] = None,
 ) -> Tuple[Optional[str], Optional[str], Dict[str, object]]:
     """Download Quran video using Invidious (free YouTube alternative) with fallback."""
     print("[DOWNLOAD] Starting video download...")
@@ -483,16 +661,31 @@ def download_quran_video(
                     message=f"Error downloading video: {exc}",
                 )
 
-        # Channel mode: search for videos by keyword
-        print(f"[DOWNLOAD] Searching channel for keyword: {title_keyword}")
-        channel_handle = _extract_channel_id(channel_url)
+        # Channel mode: list uploads from this channel only, filter by keyword + duration
+        try:
+            env_cap = int(os.getenv("MAX_VIDEO_DURATION_SECONDS", "3600"))
+        except ValueError:
+            env_cap = 3600
+        duration_cap = env_cap if max_duration_seconds is None else max_duration_seconds
+        print(
+            f"[DOWNLOAD] Channel listing | keyword={title_keyword!r} | "
+            f"max_duration_seconds={duration_cap}"
+        )
+
+        channel_handle = _extract_channel_handle(channel_url)
         if not channel_handle:
             return None, None, _build_meta(
                 source_type=source_type,
-                message="Could not extract channel ID from URL",
+                message="Could not extract channel handle or ID from URL",
             )
 
-        videos = _search_channel_videos(channel_handle, title_keyword, timeout_seconds=25)
+        videos = _search_channel_videos(
+            channel_url,
+            channel_handle,
+            title_keyword,
+            duration_cap,
+            timeout_seconds=25,
+        )
         
         if not videos:
             return None, None, _build_meta(
@@ -510,8 +703,6 @@ def download_quran_video(
                 message="All matching videos already downloaded.",
             )
 
-        # Pick random video from new ones
-        selected = random.choice(new_videos)
         candidates = random.sample(new_videos, min(len(new_videos), 5))  # Try up to 5
 
         # Try to download from candidates

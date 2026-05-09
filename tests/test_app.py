@@ -1,39 +1,57 @@
 import json
 
-import app as app_module
+import pytest
+
+from config import DEFAULT_SETTINGS
+from factory import create_app
+from routes import settings as settings_routes
+from services import settings as settings_service
 
 
-def test_load_settings_merges_defaults(tmp_path, monkeypatch):
+@pytest.fixture
+def app(tmp_path):
+    """Testing app: no scheduler; isolated settings path."""
+    app = create_app("testing")
+    app.config["SETTINGS_FILE"] = str(tmp_path / "settings.json")
+    return app
+
+
+def test_load_settings_merges_defaults(app, tmp_path):
     settings_file = tmp_path / "settings.json"
     settings_file.write_text(json.dumps({"default_keyword": "test keyword"}), encoding="utf-8")
-    monkeypatch.setattr(app_module, "SETTINGS_FILE", str(settings_file))
+    app.config["SETTINGS_FILE"] = str(settings_file)
 
-    settings = app_module.load_settings()
+    with app.app_context():
+        settings = settings_service.load_settings()
 
     assert settings["default_keyword"] == "test keyword"
-    assert settings["default_caption"] == app_module.DEFAULT_SETTINGS["default_caption"]
+    assert settings["default_caption"] == DEFAULT_SETTINGS["default_caption"]
     assert settings["cronjob_enabled"] is False
 
 
-def test_save_settings_writes_json(tmp_path, monkeypatch):
+def test_save_settings_writes_json(app, tmp_path):
     settings_file = tmp_path / "settings.json"
-    monkeypatch.setattr(app_module, "SETTINGS_FILE", str(settings_file))
+    app.config["SETTINGS_FILE"] = str(settings_file)
 
     payload = {
         "default_channel_url": "https://example.com/channel",
         "cronjob_enabled": True,
     }
 
-    assert app_module.save_settings(payload) is True
+    with app.app_context():
+        assert settings_service.save_settings(payload) is True
     assert json.loads(settings_file.read_text(encoding="utf-8")) == payload
 
 
-def test_api_settings_get_returns_saved_settings(tmp_path, monkeypatch):
+def test_api_settings_get_returns_saved_settings(app, tmp_path):
     settings_file = tmp_path / "settings.json"
-    settings_file.write_text(json.dumps({"default_caption": "custom caption"}), encoding="utf-8")
-    monkeypatch.setattr(app_module, "SETTINGS_FILE", str(settings_file))
+    settings_file.write_text(
+        json.dumps({"default_caption": "custom caption"}),
+        encoding="utf-8",
+    )
+    app.config["SETTINGS_FILE"] = str(settings_file)
 
-    client = app_module.app.test_client()
+    client = app.test_client()
     response = client.get("/api/settings")
 
     assert response.status_code == 200
@@ -42,15 +60,19 @@ def test_api_settings_get_returns_saved_settings(tmp_path, monkeypatch):
     assert payload["settings"]["default_caption"] == "custom caption"
 
 
-def test_api_settings_post_updates_file(tmp_path, monkeypatch):
+def test_api_settings_post_updates_file(app, tmp_path, monkeypatch):
     settings_file = tmp_path / "settings.json"
-    settings_file.write_text(json.dumps(app_module.DEFAULT_SETTINGS), encoding="utf-8")
-    monkeypatch.setattr(app_module, "SETTINGS_FILE", str(settings_file))
+    settings_file.write_text(json.dumps(DEFAULT_SETTINGS), encoding="utf-8")
+    app.config["SETTINGS_FILE"] = str(settings_file)
 
     configure_calls = []
-    monkeypatch.setattr(app_module, "configure_cronjob", lambda: configure_calls.append(True))
+    monkeypatch.setattr(
+        settings_routes,
+        "configure_cronjob",
+        lambda app_arg: configure_calls.append(True),
+    )
 
-    client = app_module.app.test_client()
+    client = app.test_client()
     response = client.post("/api/settings", json={"default_keyword": "new keyword"})
 
     assert response.status_code == 200
@@ -58,8 +80,8 @@ def test_api_settings_post_updates_file(tmp_path, monkeypatch):
     assert configure_calls == []
 
 
-def test_api_state_returns_pipeline_snapshot():
-    client = app_module.app.test_client()
+def test_api_state_returns_pipeline_snapshot(app):
+    client = app.test_client()
     response = client.get("/api/state")
 
     assert response.status_code == 200

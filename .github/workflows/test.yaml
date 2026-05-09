@@ -38,7 +38,7 @@ jobs:
         run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Compile the Python sources
-        run: python -m compileall app.py logic tests
+        run: python -m compileall app.py wsgi.py factory.py config.py routes services logic tests
 
       - name: Run the pytest suite
         env:

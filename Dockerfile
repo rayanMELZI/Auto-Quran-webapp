@@ -16,7 +16,7 @@ WORKDIR /app
 # Install Python dependencies
 # Copying requirements first to leverage Docker cache
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt gunicorn
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
@@ -30,7 +30,7 @@ EXPOSE 5000
 # Environment variable to ensure output is sent straight to terminal (unbuffered)
 ENV PYTHONUNBUFFERED=1
 
-# Start the application using Gunicorn
-# Using 4 workers, binding to all interfaces on port 5000
-# High timeout for long video processing tasks
-CMD ["gunicorn", "--workers", "4", "--bind", "0.0.0.0:5000", "--timeout", "600", "app:app"]
+# Gunicorn: 1 worker so in-memory pipeline/progress state stays consistent; threads for concurrent API.
+ENV GUNICORN_WORKERS=1
+ENV GUNICORN_THREADS=8
+CMD gunicorn --workers ${GUNICORN_WORKERS} --threads ${GUNICORN_THREADS} --bind 0.0.0.0:5000 --timeout 600 wsgi:app
