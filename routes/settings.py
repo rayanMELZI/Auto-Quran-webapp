@@ -25,7 +25,8 @@ def api_settings():
                 or "cronjob_interval_hours" in data
                 or "cronjob_time" in data
             ):
-                configure_cronjob(current_app._get_current_object())
+                # configure_cronjob(current_app._get_current_object())  
+                configure_cronjob(getattr(current_app, "_get_current_object")())  
 
             return jsonify({"success": True, "message": "Settings saved successfully"})
         return jsonify({"success": False, "message": "Failed to save settings"}), 500
@@ -50,7 +51,8 @@ def api_settings_reset_default():
             return jsonify({"success": False, "message": "Failed to save settings"}), 500
 
         if key in ("cronjob_enabled", "cronjob_interval_hours", "cronjob_time"):
-            configure_cronjob(current_app._get_current_object())
+            # configure_cronjob(current_app._get_current_object())
+            configure_cronjob(getattr(current_app, "_get_current_object")())
 
         return jsonify(
             {

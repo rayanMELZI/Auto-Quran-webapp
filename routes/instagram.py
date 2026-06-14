@@ -36,7 +36,8 @@ def api_post_instagram():
         caption = data.get("caption", "")
         background = bool(data.get("background") or data.get("async"))
 
-        state = get_state(current_app._get_current_object())
+        # state = get_state(current_app._get_current_object())
+        state = get_state(getattr(current_app, "_get_current_object")())
         final_video_path = state.pipeline_state.get("final_video_path")
 
         if not final_video_path:
@@ -59,7 +60,9 @@ def api_post_instagram():
                 )
 
         thumbnail_path = state.pipeline_state.get("image_path") or "assets/nature_image.jpg"
-        app = current_app._get_current_object()
+        
+        # app = current_app._get_current_object()
+        app = getattr(current_app, "_get_current_object")()
 
         if background:
             Thread(

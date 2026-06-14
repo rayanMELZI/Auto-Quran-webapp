@@ -31,7 +31,8 @@ def api_download_image():
             query=query,
         )
 
-        state = get_state(current_app._get_current_object())
+        # state = get_state(current_app._get_current_object())
+        state = get_state(getattr(current_app, "_get_current_object")())
         if image_path:
             state.pipeline_state["image_path"] = image_path
             return jsonify(
@@ -71,7 +72,8 @@ def api_download_video():
             max_duration_seconds=max_dur,
         )
 
-        state = get_state(current_app._get_current_object())
+        # state = get_state(current_app._get_current_object())
+        state = get_state(getattr(current_app, "_get_current_object")())
         if video_path:
             state.pipeline_state["video_path"] = video_path
             state.pipeline_state["video_title"] = video_title
@@ -103,7 +105,8 @@ def api_download_video():
 def api_extract_text():
     """Extract transparent text overlay from video"""
     try:
-        state = get_state(current_app._get_current_object())
+        # state = get_state(current_app._get_current_object())
+        state = get_state(getattr(current_app, "_get_current_object")())
         video_path = state.pipeline_state.get("video_path")
 
         if not video_path:
@@ -137,7 +140,8 @@ def api_extract_text():
 @bp.route("/api/create-final", methods=["POST"])
 def api_create_final():
     """Create final video with image background and text overlay"""
-    app = current_app._get_current_object()
+    # app = current_app._get_current_object()
+    app = getattr(current_app, "_get_current_object")()
     state = get_state(app)
     try:
         image_path = state.pipeline_state.get("image_path")
@@ -222,7 +226,8 @@ def api_run_full_pipeline():
             except (TypeError, ValueError):
                 max_dur = None
 
-        app = current_app._get_current_object()
+        # app = current_app._get_current_object()
+        app = getattr(current_app, "_get_current_object")()
         state = get_state(app)
         state.stop_event.clear()
 
@@ -255,13 +260,15 @@ def api_run_full_pipeline():
 @bp.route("/api/progress")
 def api_progress():
     """Get live progress for long-running operations"""
-    return jsonify(progress_snapshot(current_app._get_current_object()))
+    # return jsonify(progress_snapshot(current_app._get_current_object()))
+    return jsonify(progress_snapshot(getattr(current_app, "_get_current_object")()))
 
 
 @bp.route("/api/state")
 def api_state():
     """Get current pipeline state"""
-    state = get_state(current_app._get_current_object())
+    # state = get_state(current_app._get_current_object())
+    state = get_state(getattr(current_app, "_get_current_object")())
     ps = state.pipeline_state
     return jsonify(
         {
@@ -277,7 +284,8 @@ def api_state():
 @bp.route("/api/reset", methods=["POST"])
 def api_reset():
     """Reset pipeline state"""
-    state = get_state(current_app._get_current_object())
+    # state = get_state(current_app._get_current_object())
+    state = get_state(getattr(current_app, "_get_current_object")())
     state.pipeline_state.clear()
     state.pipeline_state.update(
         {
@@ -307,7 +315,8 @@ def api_reset_downloaded_videos():
 def api_stop_all():
     """Stop all running processes"""
     try:
-        state = get_state(current_app._get_current_object())
+        # state = get_state(current_app._get_current_object())
+        state = get_state(getattr(current_app, "_get_current_object")())
         state.stop_event.set()
         return jsonify({"success": True, "message": "Stop signal sent to all running processes"})
     except Exception as e:

@@ -1,0 +1,285 @@
+# .github/workflows/ci-cd.yml
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTO QURAN — CI/CD Pipeline
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# WHAT THIS FILE DOES (in plain English):
+#
+#   Every time you push to `main`:
+#     1. CI job   → runs tests to make sure nothing is broken
+#     2. Deploy job → (only if CI passed) SSHes into your VM through Cloudflare
+#                     Zero Trust, pulls the new code, and restarts Docker
+#
+# ── HOW CLOUDFLARE ZERO TRUST SSH WORKS ──────────────────────────────────────
+#
+#   Normal SSH:   GitHub Actions runner  ──SSH──▶  Your VM (port 22, public IP)
+#   Your setup:   GitHub Actions runner  ──SSH──▶  cloudflared  ──▶  Your VM
+#
+#   Your VM is NOT directly reachable from the internet (no public IP needed).
+#   Cloudflare acts as the middleman. `cloudflared` is a tiny binary that:
+#   1. Opens an outbound-only connection from your VM to Cloudflare's network
+#   2. When GitHub Actions wants to SSH in, the request goes:
+#      GitHub runner → Cloudflare edge → cloudflared on your VM → your sshd
+#
+#   The SSH connection itself is end-to-end authenticated with your SSH key.
+#   Cloudflare only sees encrypted traffic — it can't read your commands.
+#
+# ── REQUIRED GITHUB SECRETS ───────────────────────────────────────────────────
+#
+#   Go to: GitHub repo → Settings → Secrets and variables → Actions → New secret
+#
+#   SSH_PRIVATE_KEY   The private key for SSH into your VM.
+#                     Generate a dedicated deploy key (don't reuse your personal one):
+#                       ssh-keygen -t ed25519 -f ~/.ssh/auto_quran_deploy -C "github-deploy"
+#                     Then add the PUBLIC key to ~/.ssh/authorized_keys on your VM:
+#                       cat ~/.ssh/auto_quran_deploy.pub >> ~/.ssh/authorized_keys
+#                     Paste the PRIVATE key (auto_quran_deploy) into this secret.
+#
+#   CF_SSH_HOST       Your Cloudflare tunnel hostname for SSH.
+#                     This is the hostname you configured in Cloudflare Zero Trust
+#                     for SSH access to this VM. Example: vm.yourdomain.com
+#                     NOT your public IP — the cloudflare tunnel hostname.
+#
+#   SSH_USER          Your Linux username on the VM. Example: ubuntu
+#
+#   APP_DIR           Full path to the app on the VM. Example: /home/ubuntu/apps/auto-quran
+#
+# ── ONE-TIME SETUP ON YOUR VM ─────────────────────────────────────────────────
+#
+#   1. Clone your repo onto the VM (one time):
+#        cd ~
+#        git clone https://github.com/YOUR_USERNAME/auto-quran.git apps/auto-quran
+#        cd apps/auto-quran
+#        mkdir -p assets output data
+#        cp .env.example .env
+#        nano .env   ← fill in real credentials
+#
+#   2. Start it once manually to verify it works:
+#        docker compose up --build -d
+#        docker logs auto-quran --follow
+#
+#   After that, every push to main triggers this pipeline and updates the VM.
+#
+# ══════════════════════════════════════════════════════════════════════════════
+
+name: CI / CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]      # CI only on PRs, no deploy
+  workflow_dispatch:       # Allow manual trigger from GitHub UI
+
+# Cancel older runs if a new push happens before they finish.
+# This prevents two deploys fighting over the same VM.
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: true
+
+# ── Environment variables available to all jobs ───────────────────────────────
+env:
+  PYTHON_VERSION: "3.12"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# JOB 1: CI — Test and validate
+# ═══════════════════════════════════════════════════════════════════════════════
+jobs:
+  ci:
+    name: 🧪 Test & validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Check syntax (catch obvious errors before running tests)
+        # python -m compileall imports every .py file and reports syntax errors.
+        # -q = quiet (only print errors, not "OK" for each file)
+        # -l = don't recurse into directories (we list them explicitly)
+        run: python -m compileall -q app.py config.py state.py settings_store.py scheduler.py wsgi.py routes/ logic/
+
+      - name: Run test suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          FLASK_ENV: testing
+        run: pytest --tb=short -q
+
+  # ── Docker build check (only on pushes, not PRs from forks) ─────────────────
+  # We build the Docker image to catch Dockerfile errors early.
+  # We don't push it anywhere — just verify the build succeeds.
+  docker-check:
+    name: 🐳 Docker build check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Only run on pushes (PRs from forks can't access secrets anyway,
+    # and building Docker on every PR from strangers is wasteful)
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --file Dockerfile \
+            --tag auto-quran:ci-${{ github.sha }} \
+            --cache-from auto-quran:ci-latest \
+            .
+          echo "✅ Docker build succeeded"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# JOB 2: Deploy — Push to VM via Cloudflare Zero Trust
+# ═══════════════════════════════════════════════════════════════════════════════
+  deploy:
+    name: 🚀 Deploy to VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # CRITICAL: Only deploy when:
+    # 1. It's a push (not a PR) — we don't deploy from PRs
+    # 2. To the main branch — not feature branches
+    # 3. Both CI and Docker build passed — `needs` enforces this
+    #
+    # WHY `needs`?
+    # Without it, deploy could run in parallel with (or before) the tests.
+    # `needs: [ci, docker-check]` means deploy only starts after BOTH finish
+    # successfully. If either fails, deploy is automatically skipped.
+    needs: [ci, docker-check]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    # `environment` creates a "deployment" in GitHub's UI with a history
+    # of every deploy, who triggered it, and whether it succeeded.
+    # Optional but very useful for tracking.
+    environment:
+      name: production
+      url: https://your-app-domain.com   # update with your actual domain
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Step 1: Install cloudflared ────────────────────────────────────────
+      # cloudflared is Cloudflare's tunneling binary.
+      # It acts as a ProxyCommand for SSH: instead of connecting directly
+      # to port 22 on your VM, SSH asks cloudflared to route the connection
+      # through Cloudflare's network.
+      #
+      # We install the .deb package directly from GitHub releases.
+      # This ensures we always get the latest version.
+      - name: Install cloudflared
+        run: |
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb \
+            -o cloudflared.deb
+          sudo dpkg -i cloudflared.deb
+          cloudflared --version
+          rm cloudflared.deb
+
+      # ── Step 2: Configure SSH ──────────────────────────────────────────────
+      # We need to tell SSH two things:
+      # 1. Here is the private key to use for authentication
+      # 2. For connections to CF_SSH_HOST, use cloudflared as a proxy
+      #
+      # The ProxyCommand line is the magic: instead of a direct TCP connection,
+      # SSH runs `cloudflared access ssh --hostname <host>` which creates
+      # a tunnel through Cloudflare's network to your VM.
+      - name: Configure SSH with Cloudflare tunnel
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          # Write the private key from GitHub secrets
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          # Write SSH config: use cloudflared as proxy for the tunnel hostname
+          cat > ~/.ssh/config << 'SSHEOF'
+          Host ${{ secrets.CF_SSH_HOST }}
+            HostName ${{ secrets.CF_SSH_HOST }}
+            User ${{ secrets.SSH_USER }}
+            IdentityFile ~/.ssh/deploy_key
+            ProxyCommand cloudflared access ssh --hostname %h
+            StrictHostKeyChecking no
+            ServerAliveInterval 60
+            ServerAliveCountMax 3
+          SSHEOF
+          chmod 644 ~/.ssh/config
+
+      # ── Step 3: Test the connection ────────────────────────────────────────
+      # Before running the deploy commands, verify we can actually reach the VM.
+      # This step failing early gives a clear "connection problem" vs
+      # a confusing failure in the middle of the deploy.
+      - name: Test SSH connection
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.CF_SSH_HOST }} "echo '✅ SSH connection OK — hostname: $(hostname)'"
+
+      # ── Step 4: Deploy ─────────────────────────────────────────────────────
+      # This is what actually updates your running app.
+      #
+      # We run a here-doc (multiline script) over SSH.
+      # Each command is explained below.
+      - name: Deploy to VM
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.CF_SSH_HOST }} << 'DEPLOY'
+          set -e    # Stop immediately if any command fails
+          set -u    # Treat unset variables as errors
+          set -o pipefail  # Catch errors in pipes (e.g. "cmd1 | cmd2")
+
+          echo "═══════════════════════════════════════"
+          echo "  Deploying Auto Quran"
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Triggered by: ${{ github.actor }}"
+          echo "═══════════════════════════════════════"
+
+          cd ${{ secrets.APP_DIR }}
+
+          echo "→ Pulling latest code..."
+          git fetch origin main
+          git reset --hard origin/main    # Force-reset to remote state
+          # WHY git reset --hard instead of git pull?
+          # git pull can fail if you have local changes on the server.
+          # git reset --hard always matches the remote exactly.
+          # The server should NEVER have manual changes — all changes go through git.
+
+          echo "→ Building Docker image and restarting container..."
+          # --build       = rebuild the image with the new code
+          # --no-deps     = don't restart dependencies (we only have one service)
+          # -d            = detached (don't wait for it; return immediately)
+          # --wait        = actually, DO wait until the container is healthy
+          docker compose up --build --no-deps -d --wait app
+
+          echo "→ Verifying container is running..."
+          docker ps | grep auto-quran
+
+          echo "→ Last 20 log lines:"
+          docker logs auto-quran --tail 20
+
+          echo "✅ Deploy complete!"
+          DEPLOY
+
+      # ── Step 5: Notify on failure ──────────────────────────────────────────
+      # If any previous step failed, this step runs and tells you clearly.
+      # (No external notification service needed — GitHub emails you already
+      #  when a workflow fails, but the explicit echo helps with log readability)
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "❌ Deploy FAILED"
+          echo "Commit: ${{ github.sha }}"
+          echo "Check the logs above for the specific error."
+          echo "The previous version is still running on the VM."
+          # If you want Slack/Discord/Telegram notifications, add them here.
