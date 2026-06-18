@@ -37,5 +37,9 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:5000/api/health')" || exit 1
 
-# Run with gunicorn for production
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "300", "app:app"]
+# Run with gunicorn for production.
+# IMPORTANT: a single worker — pipeline state lives in process memory and the
+# pipeline runs in a background thread, so multiple workers would split that state
+# and break /progress polling. Use threads so /progress stays responsive while a
+# long create-final-video render blocks its handler. Timeout is generous for renders.
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "8", "--timeout", "1800", "app:app"]
