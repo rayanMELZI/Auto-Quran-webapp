@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, production, v2]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -t autoquran-backend ./backend
+
+      - name: Run tests
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/logic:/app/logic:ro" \
+            -v "${{ github.workspace }}/tests:/app/tests:ro" \
+            -v "${{ github.workspace }}/pytest.ini:/app/pytest.ini:ro" \
+            --workdir /app \
+            --entrypoint sh \
+            autoquran-backend -c "pip install --no-cache-dir pytest >/dev/null && python -m pytest tests"

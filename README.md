@@ -5,13 +5,17 @@ A production-ready web application for creating beautiful Quran videos with natu
 ## 🎯 Features
 
 - **📷 Download Nature Images** - Fetch beautiful nature backgrounds from Unsplash
-- **🎥 Download Quran Videos** - Download Quran recitation videos from YouTube
+- **🎥 Download Quran Videos** - Download **short** Quran recitation clips (≤ 60s) from YouTube
 - **📝 Extract Text Overlay** - Create transparent text overlays from videos
 - **🎬 Create Final Video** - Combine all elements into Instagram-ready videos
-- **📱 Post to Instagram** - Automatically post videos to Instagram
+- **📱 Post to Instagram** - Automatically post videos to Instagram (login session persisted)
 - **⚡ Full Pipeline** - Run all steps automatically with one click
 - **👀 Live Previews** - Preview each step's output before proceeding
 - **🐳 Docker Support** - Fully containerized with Docker Compose
+
+> **Reel length:** the downloader only accepts clips up to **60 seconds**. Longer
+> recitations (and videos whose length can't be confirmed) are skipped automatically.
+> Override the limit with the `--max-duration` CLI flag on `download_quran_video.py`.
 
 ## 🏗️ Project Structure
 
@@ -44,8 +48,12 @@ Auto Quran/
 │       ├── create_final_video.py
 │       └── post_to_instagram.py
 │
+├── tests/                  # pytest unit + API tests (network mocked)
+├── .github/workflows/      # CI (tests) + deploy-to-VM pipelines
+│
 ├── docker-compose.yml      # Development compose file
 ├── docker-compose.prod.yml # Production compose file
+├── pytest.ini              # Test configuration
 └── README.md              # This file
 ```
 
@@ -167,9 +175,16 @@ The production configuration includes:
 6. **Run the backend**
    ```bash
    python app.py
-   # Or with gunicorn:
-   gunicorn --bind 0.0.0.0:5000 --workers 2 app:app
+   # Or with gunicorn (see note below about the single worker):
+   gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 8 --timeout 1800 app:app
    ```
+
+   > ⚠️ **Run exactly one gunicorn worker.** The pipeline/progress state lives in
+   > process memory and the pipeline runs in a background thread. With more than one
+   > worker, `/api/progress` and `/api/state` requests get load-balanced to a worker
+   > that doesn't hold the running state and return empty/inconsistent data. Use
+   > `--threads` (not more workers) for concurrency so `/api/progress` stays responsive
+   > while a long `create-final-video` render is encoding.
 
 ### Frontend Setup
 
@@ -252,7 +267,16 @@ PORT=5000
 
 # CORS
 CORS_ORIGINS=http://localhost:3000,http://localhost:8080
+
+# Optional: where the persisted Instagram login session is stored.
+# Defaults to assets/instagram_session.json, which lives on a Docker volume
+# so the session survives container restarts (avoids repeated logins).
+INSTAGRAM_SESSION_FILE=assets/instagram_session.json
 ```
+
+> `backend/.env` is **gitignored** and is never committed. For local runs you create
+> it by hand; for VM deploys it's generated from GitHub Secrets — see
+> [Deploying to your own VM](#-deploying-to-your-own-vm-github-actions).
 
 ### Application Settings
 
@@ -292,6 +316,56 @@ docker-compose up -d --build
 # Scale workers (backend only)
 docker-compose up -d --scale backend=2
 ```
+
+## 🧪 Testing
+
+Unit/API tests live in `tests/` (pure logic + Flask test client with the heavy
+download/render/Instagram calls mocked — no network needed).
+
+```bash
+# Local (needs the backend deps installed)
+pip install -r backend/requirements-dev.txt
+pytest
+
+# Or inside the backend image (matches CI exactly)
+docker build -t autoquran-backend ./backend
+docker run --rm \
+  -v "$PWD/logic:/app/logic:ro" \
+  -v "$PWD/tests:/app/tests:ro" \
+  -v "$PWD/pytest.ini:/app/pytest.ini:ro" \
+  --workdir /app --entrypoint sh \
+  autoquran-backend -c "pip install pytest && pytest tests"
+```
+
+CI runs these automatically on every push/PR via `.github/workflows/ci.yml`.
+
+## ☁️ Deploying to your own VM (GitHub Actions)
+
+Hosting is fully dockerized — no PaaS required. `backend/.env` is **never committed**;
+the deploy workflow regenerates it on the server from GitHub Secrets.
+
+1. On the VM (once): install Docker + Docker Compose, then
+   `git clone https://github.com/rayanMELZI/Auto-Quran-webapp.git`.
+2. In the GitHub repo, add these **Secrets** (Settings → Secrets and variables → Actions):
+
+   | Secret | Purpose |
+   | --- | --- |
+   | `VM_HOST` | server IP / hostname |
+   | `VM_USER` | SSH user |
+   | `VM_SSH_KEY` | private SSH key authorized on the server |
+   | `VM_APP_DIR` | absolute path of the clone on the VM |
+   | `UNSPLASH_API_KEY` | written into `backend/.env` |
+   | `INSTA_USERNAME` | written into `backend/.env` |
+   | `INSTA_PASSWORD` | written into `backend/.env` |
+   | `FLASK_SECRET_KEY` | (optional) strong random string |
+
+3. Trigger `.github/workflows/deploy.yml` (manually from the Actions tab, or by
+   pushing the release branch). It SSHes in, writes `backend/.env` from the secrets,
+   then runs `docker compose -f docker-compose.prod.yml up -d --build`.
+
+So the answer to *"how do I get `backend/.env` onto the VM?"* — you don't copy it by
+hand and you don't commit it. You store the values as GitHub Secrets and the workflow
+writes the file on the server at deploy time.
 
 ## 🔒 Security Notes
 

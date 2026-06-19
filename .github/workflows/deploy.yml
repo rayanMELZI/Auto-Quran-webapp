@@ -1,0 +1,59 @@
+name: Deploy to VM
+
+# Deploys the dockerized stack to your own server over SSH and writes
+# backend/.env on the VM from GitHub Secrets (the .env is never committed).
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   VM_HOST            public IP / hostname of your server
+#   VM_USER            SSH user
+#   VM_SSH_KEY         private SSH key (PEM) authorized on the server
+#   VM_APP_DIR         absolute path to the checked-out repo on the VM
+#                      (e.g. /home/ubuntu/Auto-Quran-webapp)
+#   UNSPLASH_API_KEY   secret app credentials -> written into backend/.env
+#   INSTA_USERNAME
+#   INSTA_PASSWORD
+#   FLASK_SECRET_KEY   (optional) a strong random string
+
+on:
+  workflow_dispatch:        # run manually from the Actions tab
+  push:
+    branches: [v2]          # change to your release branch when ready
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          # Pass the app secrets into the remote shell as env vars so they are
+          # never printed or written to the repo.
+          envs: UNSPLASH_API_KEY,INSTA_USERNAME,INSTA_PASSWORD,FLASK_SECRET_KEY
+          script: |
+            set -e
+            cd "${{ secrets.VM_APP_DIR }}"
+            git fetch --all
+            git checkout ${{ github.ref_name }}
+            git pull --ff-only
+
+            # Recreate backend/.env from the injected secrets (umask keeps it private)
+            umask 077
+            cat > backend/.env <<EOF
+            UNSPLASH_API_KEY=${UNSPLASH_API_KEY}
+            INSTA_USERNAME=${INSTA_USERNAME}
+            INSTA_PASSWORD=${INSTA_PASSWORD}
+            SECRET_KEY=${FLASK_SECRET_KEY}
+            FLASK_ENV=production
+            PORT=5000
+            EOF
+
+            docker compose -f docker-compose.prod.yml up -d --build
+            docker compose -f docker-compose.prod.yml ps
+        env:
+          UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
+          INSTA_USERNAME: ${{ secrets.INSTA_USERNAME }}
+          INSTA_PASSWORD: ${{ secrets.INSTA_PASSWORD }}
+          FLASK_SECRET_KEY: ${{ secrets.FLASK_SECRET_KEY }}

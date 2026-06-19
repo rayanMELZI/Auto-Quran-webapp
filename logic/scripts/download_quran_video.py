@@ -22,6 +22,28 @@ def _append_downloaded_id(file_path: Path, video_id: str) -> None:
         handle.write(f"{video_id}\n")
 
 
+def _get_duration_seconds(entry: Dict[str, Any]) -> Optional[float]:
+    """Return the video duration in seconds if known, else None."""
+    raw = entry.get("duration")
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _is_short(entry: Dict[str, Any], max_duration_seconds: float) -> bool:
+    """True only when the duration is known and within the allowed limit.
+
+    Videos with an unknown duration are treated as NOT short, so we never risk
+    downloading a long recitation when the length can't be confirmed.
+    """
+    duration = _get_duration_seconds(entry)
+    return duration is not None and duration <= max_duration_seconds
+
+
 def _normalize_video_url(entry: Dict[str, Any]) -> Optional[str]:
     url = entry.get("webpage_url") or entry.get("url")
     if not url:
@@ -55,6 +77,7 @@ def download_quran_video(
     downloaded_videos_file: str = "assets/downloaded_videos.txt",
     title_keyword: str = "سورة",
     video_url: Optional[str] = None,
+    max_duration_seconds: float = 60.0,
 ) -> Tuple[Optional[str], Optional[str], Dict[str, object]]:
     print("Downloading Quran video...")
 
@@ -91,6 +114,19 @@ def download_quran_video(
                 source_type=source_type,
                 message="Could not resolve selected video details.",
             )
+
+        # Reject videos longer than the allowed limit (short reels only)
+        if not _is_short(selected, max_duration_seconds):
+            duration = _get_duration_seconds(selected)
+            length = f"{duration:.0f}s" if duration is not None else "unknown length"
+            return None, None, _build_meta(
+                video_id=selected.get("id"),
+                source_type=source_type,
+                message=(
+                    f"Video is too long ({length}). Only videos up to "
+                    f"{int(max_duration_seconds)}s are allowed."
+                ),
+            )
     else:
         try:
             with yt_dlp.YoutubeDL(cast(Any, info_opts)) as ydl:
@@ -112,7 +148,18 @@ def download_quran_video(
                 message=f"No videos found with keyword '{title_keyword}'.",
             )
 
-        new_entries = [e for e in keyword_entries if e["id"] not in downloaded_ids]
+        # Keep only short videos (≤ max_duration_seconds); long recitations are skipped
+        short_entries = [e for e in keyword_entries if _is_short(e, max_duration_seconds)]
+        if not short_entries:
+            return None, None, _build_meta(
+                source_type=source_type,
+                message=(
+                    f"No videos up to {int(max_duration_seconds)}s found with keyword "
+                    f"'{title_keyword}'. Try a channel with short clips."
+                ),
+            )
+
+        new_entries = [e for e in short_entries if e["id"] not in downloaded_ids]
         if not new_entries:
             return None, None, _build_meta(
                 source_type=source_type,
@@ -243,6 +290,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--downloaded-file", default="assets/downloaded_videos.txt", help="File to track downloaded video IDs")
     parser.add_argument("--keyword", default="سورة", help="Keyword that must exist in the title")
     parser.add_argument("--video-url", default=None, help="Optional direct YouTube video URL")
+    parser.add_argument("--max-duration", type=float, default=60.0, help="Maximum allowed video length in seconds")
     return parser
 
 
@@ -254,6 +302,7 @@ if __name__ == "__main__":
         downloaded_videos_file=args.downloaded_file,
         title_keyword=args.keyword,
         video_url=args.video_url,
+        max_duration_seconds=args.max_duration,
     )
     if not video_path:
         if meta.get("message"):

@@ -16,11 +16,11 @@ services:
     volumes:
       # Mount logic directory for video processing scripts (read-only)
       - ./logic:/app/logic:ro
-      # Persistent storage for assets and output
+      # Persistent storage for assets and output. The Instagram login session
+      # (assets/instagram_session.json) and downloaded-video tracking live here too,
+      # so they survive container restarts.
       - ./data/assets:/app/assets
       - ./data/output:/app/output
-      # Persist the Instagram login session across restarts
-      - autoquran-session:/app/session
     restart: unless-stopped
     networks:
       - autoquran-network
@@ -54,6 +54,3 @@ services:
 networks:
   autoquran-network:
     driver: bridge
-
-volumes:
-  autoquran-session:

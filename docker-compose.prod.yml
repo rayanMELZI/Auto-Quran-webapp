@@ -17,9 +17,10 @@ services:
       - "5000"
     volumes:
       - ./logic:/app/logic:ro
+      # assets/ holds downloaded media, settings, the downloaded-video list and the
+      # persisted Instagram session (assets/instagram_session.json).
       - production_assets:/app/assets
       - production_output:/app/output
-      - production_session:/app/session
     restart: always
     networks:
       - autoquran-network
@@ -79,6 +80,4 @@ volumes:
   production_assets:
     driver: local
   production_output:
-    driver: local
-  production_session:
     driver: local

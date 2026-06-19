@@ -70,6 +70,24 @@ dev.bat restart   # Windows
 - **Full Pipeline**: Automate everything with one click
 - **Toggle Instagram**: Disable auto-posting if you want to preview first
 - **Preview**: Each step shows a preview before proceeding
+- **Short clips only**: the downloader accepts videos up to **60 seconds**; longer
+  recitations are skipped automatically.
+- **Instagram login persists**: the session is saved to `assets/instagram_session.json`
+  (a Docker volume), so the app doesn't have to log in again on every restart.
+
+## 🚀 Hosting on your own VM
+
+The stack is fully dockerized (nginx → gunicorn); no third-party PaaS needed.
+
+```bash
+# on the server, after editing backend/.env
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+To automate it, use the included `.github/workflows/deploy.yml` — it writes
+`backend/.env` on the VM from **GitHub Secrets** (so the file is never committed) and
+redeploys over SSH. See **"Deploying to your own VM"** in [README.md](README.md) for the
+exact list of secrets to add.
 
 ## 🐛 Troubleshooting
 

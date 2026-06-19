@@ -1,19 +1,34 @@
 import argparse
 import os
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 from instagrapi import Client
 from instagrapi.exceptions import LoginRequired
 
 
+# Default to a path inside assets/ so the session survives container restarts
+# (assets/ is a persisted volume in both docker-compose files). Override with
+# the INSTAGRAM_SESSION_FILE env var if you want it somewhere else.
+DEFAULT_SESSION_FILE = os.getenv("INSTAGRAM_SESSION_FILE", "assets/instagram_session.json")
+
+
 def post_to_instagram(
     video_path: str,
     caption: str,
     thumbnail_path: str = "assets/nature_image.jpg",
-    session_file: str = "instagram_session.json",
+    session_file: Optional[str] = None,
 ) -> bool:
     print("Posting to Instagram...")
+
+    if session_file is None:
+        session_file = DEFAULT_SESSION_FILE
+
+    # Make sure the directory for the session file exists before instagrapi writes it
+    session_parent = Path(session_file).parent
+    if str(session_parent) not in ("", "."):
+        session_parent.mkdir(parents=True, exist_ok=True)
 
     load_dotenv()
     username = os.getenv("INSTA_USERNAME")
@@ -68,7 +83,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("video_path", help="Path to the final video")
     parser.add_argument("caption", help="Caption text")
     parser.add_argument("--thumbnail", default="assets/nature_image.jpg", help="Thumbnail image path")
-    parser.add_argument("--session-file", default="instagram_session.json", help="Path to session json")
+    parser.add_argument("--session-file", default=DEFAULT_SESSION_FILE, help="Path to session json")
     return parser
 
 
