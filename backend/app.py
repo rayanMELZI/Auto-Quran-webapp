@@ -451,6 +451,56 @@ def api_post_instagram():
         }), 500
 
 
+@app.route('/api/post-video', methods=['POST'])
+def api_post_video():
+    """Publish an externally-supplied video straight to Instagram, skipping the whole
+    pipeline (no download / extract / final-video steps). Accepts a multipart upload
+    (field `video`) plus an optional `caption` form field. Used by ChromaQuran's
+    'Share on Instagram' button, which renders its own video and just wants it posted."""
+    try:
+        if 'video' not in request.files:
+            return jsonify({'success': False, 'message': 'No video file provided'}), 400
+
+        file = request.files['video']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': 'No file selected'}), 400
+
+        caption = (request.form.get('caption') or '').strip()
+        if not caption:
+            caption = DEFAULT_SETTINGS['default_caption']
+
+        # Persist into output/ (a mounted volume) under a unique name so concurrent
+        # posts don't clobber each other.
+        os.makedirs('output', exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        video_path = os.path.join('output', f'external_{timestamp}.mp4')
+        file.save(video_path)
+
+        # No thumbnail path -> post_to_instagram lets instagrapi derive one from the
+        # video's first frame (correct for ChromaQuran's black canvas; the pipeline's
+        # nature-image thumbnail would be wrong here).
+        success = post_to_instagram(
+            video_path=video_path,
+            caption=caption,
+            thumbnail_path='',
+        )
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Video posted to Instagram successfully! 🎉'
+            })
+        return jsonify({
+            'success': False,
+            'message': 'Failed to post to Instagram'
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }), 500
+
+
 def _scheduled_pipeline_job():
     """Scheduled cronjob that runs the pipeline automatically"""
     print(f"[CRONJOB] Starting scheduled pipeline at {datetime.now()}")
