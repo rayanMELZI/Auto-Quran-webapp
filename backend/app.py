@@ -476,13 +476,26 @@ def api_post_video():
         video_path = os.path.join('output', f'external_{timestamp}.mp4')
         file.save(video_path)
 
-        # No thumbnail path -> post_to_instagram lets instagrapi derive one from the
-        # video's first frame (correct for ChromaQuran's black canvas; the pipeline's
-        # nature-image thumbnail would be wrong here).
+        # Instagram's clip_upload needs a real cover image; instagrapi's auto-extraction
+        # is unreliable for these videos, so we pull the first frame ourselves with ffmpeg
+        # (the actual ChromaQuran frame — verse text on black — which is the right cover).
+        thumb_path = os.path.join('output', f'external_{timestamp}.jpg')
+        try:
+            import subprocess
+            import imageio_ffmpeg
+            subprocess.run(
+                [imageio_ffmpeg.get_ffmpeg_exe(), '-y', '-ss', '0.5', '-i', video_path,
+                 '-frames:v', '1', '-q:v', '3', thumb_path],
+                check=True, capture_output=True,
+            )
+        except Exception as thumb_err:
+            print(f"Thumbnail extraction failed, posting without one: {thumb_err}")
+            thumb_path = ''
+
         success = post_to_instagram(
             video_path=video_path,
             caption=caption,
-            thumbnail_path='',
+            thumbnail_path=thumb_path,
         )
 
         if success:
