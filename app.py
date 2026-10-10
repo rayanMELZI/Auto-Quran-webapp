@@ -888,4 +888,4 @@ if __name__ == '__main__':
     # host = os.getenv('FLASK_HOST', '0.0.0.0')
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
-    app.run(debug=True, port=5000)
+    # app.run(debug=True, port=5000)
