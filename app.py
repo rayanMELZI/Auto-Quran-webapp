@@ -392,6 +392,65 @@ def api_post_instagram():
         }), 500
 
 
+@app.route('/api/post-video', methods=['POST'])
+def api_post_video():
+    """Publish an externally-supplied video straight to Instagram, skipping the whole
+    pipeline. Accepts a multipart upload (field `video`) plus an optional `caption`
+    form field. Used by ChromaQuran, which renders its own video and just wants it posted."""
+    try:
+        if 'video' not in request.files:
+            return jsonify({'success': False, 'message': 'No video file provided'}), 400
+
+        file = request.files['video']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': 'No file selected'}), 400
+
+        caption = (request.form.get('caption') or '').strip()
+        if not caption:
+            caption = load_settings().get('default_caption') or DEFAULT_SETTINGS['default_caption']
+
+        # Unique name so concurrent posts don't clobber each other
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        video_path = os.path.join('output', f'external_{timestamp}.mp4')
+        file.save(video_path)
+
+        # clip_upload needs a real cover image; instagrapi's auto-extraction is unreliable
+        # for these videos, so pull the first frame ourselves with ffmpeg
+        thumb_path = os.path.join('output', f'external_{timestamp}.jpg')
+        try:
+            import subprocess
+            import imageio_ffmpeg
+            subprocess.run(
+                [imageio_ffmpeg.get_ffmpeg_exe(), '-y', '-ss', '0.5', '-i', video_path,
+                 '-frames:v', '1', '-q:v', '3', thumb_path],
+                check=True, capture_output=True,
+            )
+        except Exception as thumb_err:
+            print(f"Thumbnail extraction failed, using default cover: {thumb_err}")
+            thumb_path = 'assets/nature_image.jpg'
+
+        success = post_to_instagram(
+            video_path=video_path,
+            caption=caption,
+            thumbnail_path=thumb_path
+        )
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Video posted to Instagram successfully! 🎉'
+            })
+        return jsonify({
+            'success': False,
+            'message': 'Failed to post to Instagram'
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }), 500
+
+
 def _scheduled_pipeline_job():
     """Scheduled cronjob that runs the pipeline automatically"""
     print(f"[CRONJOB] Starting scheduled pipeline at {datetime.now()}")
