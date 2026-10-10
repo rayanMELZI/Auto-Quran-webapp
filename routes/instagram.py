@@ -1,10 +1,15 @@
 import logging
+import os
+import subprocess
+from datetime import datetime
 from threading import Thread
 
+import imageio_ffmpeg
 from flask import Blueprint, current_app, jsonify, request
 
 from logic.scripts.post_to_instagram import post_to_instagram
 from services.pipeline_runtime import get_state
+from services.settings import load_settings
 
 logger = logging.getLogger(__name__)
 
@@ -108,4 +113,53 @@ def api_post_instagram():
         )
     except Exception as e:
         logger.exception("api_post_instagram")
+        return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
+
+
+def _extract_cover(video_path: str, thumb_path: str) -> str:
+    """Grab a frame from the video as the reel cover. clip_upload needs a real image and
+    instagrapi's own extraction is unreliable for these videos. Returns '' on failure."""
+    try:
+        subprocess.run(
+            [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-ss", "0.5", "-i", video_path,
+             "-frames:v", "1", "-q:v", "3", thumb_path],
+            check=True, capture_output=True, timeout=60,
+        )
+        return thumb_path
+    except Exception as exc:
+        logger.warning("post-video: cover extraction failed: %s", exc)
+        return ""
+
+
+@bp.route("/api/post-video", methods=["POST"])
+def api_post_video():
+    """Publish an uploaded video straight to Instagram, skipping the pipeline.
+    Multipart: `video` file + optional `caption`. Used by ChromaQuran, which renders
+    its own video and only needs it posted."""
+    try:
+        file = request.files.get("video")
+        if file is None or not file.filename:
+            return jsonify({"success": False, "message": "No video file provided"}), 400
+
+        caption = (request.form.get("caption") or "").strip() or load_settings()["default_caption"]
+
+        # Unique name so concurrent posts don't clobber each other
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        output_dir = current_app.config["OUTPUT_DIR"]
+        video_path = os.path.join(output_dir, f"external_{stamp}.mp4")
+        file.save(video_path)
+        thumb_path = _extract_cover(video_path, os.path.join(output_dir, f"external_{stamp}.jpg"))
+
+        out = post_to_instagram(video_path=video_path, caption=caption, thumbnail_path=thumb_path)
+        if out.get("success"):
+            return jsonify({"success": True, "message": out.get("message", "Posted to Instagram.")})
+
+        status = 503 if out.get("error_category") in ("ip_block", "rate_limit", "blocked", "proxy") else 502
+        return jsonify({
+            "success": False,
+            "message": out.get("message", "Failed to post to Instagram."),
+            "error_category": out.get("error_category"),
+        }), status
+    except Exception as e:
+        logger.exception("api_post_video")
         return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
