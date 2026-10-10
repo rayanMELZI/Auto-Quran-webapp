@@ -1,0 +1,83 @@
+name: Deploy to VM
+
+# Production runs this branch as the `quran-app` systemd service (gunicorn on :5000)
+# from a git checkout on the server. A deploy = fast-forward that checkout to this
+# branch, then let systemd restart gunicorn (Restart=always), so no sudo is needed.
+#
+# The server's SSH is behind Cloudflare Access, so we connect through cloudflared
+# with a service token (same setup as ChromaQuran's deploy).
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   VM_SSH_KEY              private SSH key authorized for the `nano` user
+#   CF_ACCESS_CLIENT_ID     Cloudflare Access service token Client ID
+#   CF_ACCESS_CLIENT_SECRET Cloudflare Access service token Client Secret
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [V0.1]
+
+concurrency:
+  group: deploy-v01
+  cancel-in-progress: false
+
+env:
+  VM_HOST: nanovm.rayanemelzi.dev
+  VM_USER: nano
+  APP_DIR: /home/nano/Auto-Quran-webapp
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure cloudflared + SSH
+        env:
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+        run: |
+          sudo curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+          sudo chmod +x /usr/local/bin/cloudflared
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          cat > ~/.ssh/config <<CFG
+          Host vm
+            HostName ${VM_HOST}
+            User ${VM_USER}
+            IdentityFile ~/.ssh/id_deploy
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ProxyCommand cloudflared access ssh --hostname %h
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: Update checkout & restart
+        env:
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          ssh vm APP_DIR="$APP_DIR" BRANCH="${GITHUB_REF_NAME}" 'bash -s' <<'REMOTE'
+          set -e
+          cd "$APP_DIR"
+          echo "Local changes before deploy:"; git status -s
+          git fetch origin "$BRANCH"
+          # Tracked files only: .env, assets/, output/, .venv and the Instagram
+          # session are untracked/ignored and are left untouched.
+          git checkout -q "$BRANCH"
+          git reset --hard "origin/$BRANCH"
+          git log -1 --oneline
+
+          OLD_PID=$(systemctl show -p MainPID --value quran-app)
+          kill -TERM "$OLD_PID"
+          for i in $(seq 1 60); do
+            sleep 2
+            NEW_PID=$(systemctl show -p MainPID --value quran-app)
+            if [ "$NEW_PID" != "0" ] && [ "$NEW_PID" != "$OLD_PID" ] \
+               && curl -fsS -o /dev/null http://127.0.0.1:5000/api/settings; then
+              echo "quran-app restarted (pid $NEW_PID)"
+              # GET must be 405 (route exists, POST only), not 404
+              test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5000/api/post-video)" = 405
+              exit 0
+            fi
+          done
+          echo "quran-app did not come back up"; exit 1
+          REMOTE
