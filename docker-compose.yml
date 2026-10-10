@@ -1,19 +1,27 @@
-version: '3.8'
-
 services:
   app:
     build: .
     container_name: auto-quran
-    restart: always
+    restart: unless-stopped
     ports:
-      - "5000:5000"
+      # Local dev: localhost only. Production binds the docker bridge (172.17.0.1) so
+      # ChromaQuran's container reaches it as host.docker.internal:5000 while it stays
+      # off the public interface (the API is unauthenticated and can post to Instagram).
+      - "${AUTOQURAN_BIND_IP:-127.0.0.1}:5000:5000"
     volumes:
-      - ./assets:/app/assets
-      - ./output:/app/output
-      - ./data:/app/data
+      # Lives outside the app dir in production so redeploys never touch it
+      # (settings.json and the Instagram session are in assets/).
+      - ${AUTOQURAN_DATA_DIR:-.}/assets:/app/assets
+      - ${AUTOQURAN_DATA_DIR:-.}/output:/app/output
+      - ${AUTOQURAN_DATA_DIR:-.}/data:/app/data
     env_file:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
-      # Explicitly set port if needed by app.py
       - PORT=5000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
