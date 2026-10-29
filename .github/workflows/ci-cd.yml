@@ -1,0 +1,157 @@
+# AUTO QURAN — CI/CD
+#
+#   push / PR to main or production → tests + Docker build check
+#   push to production              → (if both pass) deploy to the VM
+#
+# The VM's SSH is behind Cloudflare Access, so the deploy job connects through
+# cloudflared with a service token (same setup as ChromaQuran). It ships only tracked
+# files (git archive), writes .env from secrets and runs docker compose as `deploy`.
+# Persistent data (settings, Instagram session, outputs) lives in DATA_DIR, outside the
+# app dir, so every deploy starts from a clean checkout without losing state.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   VM_SSH_KEY               private SSH key authorized for the `deploy` user
+#   CF_ACCESS_CLIENT_ID      Cloudflare Access service token Client ID
+#   CF_ACCESS_CLIENT_SECRET  Cloudflare Access service token Client Secret
+#   INSTA_USERNAME           Instagram account
+#   INSTA_PASSWORD
+#   UNSPLASH_API_KEY
+#   FLASK_SECRET_KEY         (optional) long random string
+#   INSTAGRAM_SESSION_JSON   (optional) contents of a valid instagram_session.json; only
+#                            seeded when the server has no session yet, never overwrites
+
+name: CI / CD
+
+on:
+  push:
+    branches: [main, production]
+  pull_request:
+    branches: [main, production]
+  workflow_dispatch:
+
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+  VM_HOST: nanovm.rayanemelzi.dev
+  VM_USER: deploy
+  APP_DIR: /home/deploy/auto-quran
+  DATA_DIR: /home/deploy/auto-quran-data
+
+jobs:
+  ci:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Check syntax
+        run: python -m compileall -q app.py config.py factory.py wsgi.py routes/ services/ logic/
+
+      - name: Run tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          FLASK_ENV: testing
+        run: pytest --tb=short -q
+
+  docker-check:
+    name: Docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --tag auto-quran:ci-${{ github.sha }} .
+
+  deploy:
+    name: Deploy to VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [ci, docker-check]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/production'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build .env and source archive
+        env:
+          INSTA_USERNAME: ${{ secrets.INSTA_USERNAME }}
+          INSTA_PASSWORD: ${{ secrets.INSTA_PASSWORD }}
+          UNSPLASH_API_KEY: ${{ secrets.UNSPLASH_API_KEY }}
+          FLASK_SECRET_KEY: ${{ secrets.FLASK_SECRET_KEY }}
+          INSTAGRAM_SESSION_JSON: ${{ secrets.INSTAGRAM_SESSION_JSON }}
+        run: |
+          umask 077
+          cat > deploy.env <<EOF
+          UNSPLASH_API_KEY=${UNSPLASH_API_KEY}
+          INSTA_USERNAME=${INSTA_USERNAME}
+          INSTA_PASSWORD=${INSTA_PASSWORD}
+          SECRET_KEY=${FLASK_SECRET_KEY:-$(openssl rand -hex 32)}
+          APP_CONFIG=production
+          AUTOQURAN_BIND_IP=172.17.0.1
+          AUTOQURAN_DATA_DIR=${DATA_DIR}
+          EOF
+          printf '%s' "$INSTAGRAM_SESSION_JSON" > ig_session.json
+          git archive HEAD | gzip > app.tar.gz
+
+      - name: Configure cloudflared + SSH
+        env:
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+        run: |
+          sudo curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+          sudo chmod +x /usr/local/bin/cloudflared
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          cat > ~/.ssh/config <<CFG
+          Host vm
+            HostName ${VM_HOST}
+            User ${VM_USER}
+            IdentityFile ~/.ssh/id_deploy
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ProxyCommand cloudflared access ssh --hostname %h
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: Ship & deploy
+        env:
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          scp app.tar.gz deploy.env ig_session.json vm:/tmp/
+          ssh vm APP_DIR="$APP_DIR" DATA_DIR="$DATA_DIR" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          for d in "$APP_DIR" "$DATA_DIR"; do
+            case "$d" in /home/deploy/?*) ;; *) echo "Refusing unsafe dir '$d'"; exit 1 ;; esac
+          done
+
+          mkdir -p "$APP_DIR" "$DATA_DIR/assets" "$DATA_DIR/output" "$DATA_DIR/data"
+          find "$APP_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          tar xzf /tmp/app.tar.gz -C "$APP_DIR"
+          install -m 600 /tmp/deploy.env "$APP_DIR/.env"
+          if [ -s /tmp/ig_session.json ] && [ ! -e "$DATA_DIR/assets/instagram_session.json" ]; then
+            install -m 600 /tmp/ig_session.json "$DATA_DIR/assets/instagram_session.json"
+            echo "Seeded Instagram session"
+          fi
+          rm -f /tmp/app.tar.gz /tmp/deploy.env /tmp/ig_session.json
+
+          cd "$APP_DIR"
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
+          docker image prune -f
+
+          curl -fsS http://172.17.0.1:5000/api/health
+          # route must exist (POST only) → 405, not 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://172.17.0.1:5000/api/post-video)" = 405
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+          REMOTE
